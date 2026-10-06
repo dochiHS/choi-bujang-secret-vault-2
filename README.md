@@ -23,7 +23,40 @@
 | 단계 | 상태 | 한 일 |
 | --- | --- | --- |
 | 1단계 | 통과 | 시작 틀을 그대로 배포해 `/`와 `/data.json`에서 가상 메모 네 건이 공개된 것을 확인 |
-| 2단계 | 이 커밋 | 메모를 정적 파일·코드에서 빼고 학습용 Supabase 테이블과 서버 함수 `/api/notes`로 옮김 |
+| 2단계 | 통과 | 메모를 정적 파일·코드에서 빼고 학습용 Supabase 테이블과 서버 함수 `/api/notes`로 옮김. 재제출로 보안 헤더(`X-Content-Type-Options: nosniff`) 추가 |
+| 3단계 | 이 커밋 | Supabase Auth 이메일·비밀번호 로그인·로그아웃, 서버의 토큰 검사(`src/verify-login.mjs`), 로그인 사용자의 가상 메모 추가·수정·삭제 |
+
+## 3단계: 진짜 로그인을 붙임
+
+- 화면(`public/index.html`)은 공식 SDK `@supabase/supabase-js@2.117.2`(jsDelivr ESM)의 `signInWithPassword`·`signOut`으로 로그인·로그아웃합니다. 실패하면 이유(예: 이메일 또는 비밀번호가 맞지 않음)를 화면에 보여 줍니다. 화면 코드에는 공개용 Project URL과 publishable key만 있습니다.
+- 자료 API는 `Authorization: Bearer <access_token>`만 믿습니다. 시작 틀의 `createLoginVerifier`(`src/verify-login.mjs`, 수정하지 않음)로 토큰을 검사하고, 브라우저가 보낸 `userId`·`role`·`owner_id`는 읽지 않습니다. 토큰이 없거나 검사에 실패하면 자료 없이 `401`과 JSON 오류 문구를 돌려줍니다.
+- 검사에 쓴 발급자 정보는 `aleph.config.json`의 `identityProvider`(발급자 `…/auth/v1`, 대상 `authenticated`, 공개키 주소 `…/auth/v1/.well-known/jwks.json`)에 있습니다. 비밀 키는 넣지 않습니다.
+- 함수가 `aleph.config.json`을 읽을 수 있게 `vercel.json`의 `functions."api/**/*.js".includeFiles`에 넣었습니다. 모든 응답에 `X-Content-Type-Options: nosniff`가 붙습니다.
+
+### API (허용 경로는 `aleph.config.json`의 `allowedRoutes`)
+
+| 요청 | 결과 |
+| --- | --- |
+| `GET /api/notes` | 로그인 사용자의 메모 배열 `[{ id, title, body }]` |
+| `POST /api/notes` `{ id?, title, body }` | `201 { id }`. `id`(UUID)가 없으면 서버가 만듦. 같은 `id`는 `409` |
+| `GET /api/notes/:id` | `{ id, title, body }`, 없으면 `404` |
+| `PUT /api/notes/:id` `{ title, body }` | 고친 `{ id, title, body }`, 없으면 `404` |
+| `DELETE /api/notes/:id` | `204`, 지운 뒤 `GET`은 `404` |
+
+- 추가할 때 `owner_id`는 서버가 확인한 로그인 사용자 ID로 저장합니다(`api/_notes-lib.js`).
+- 표 변경은 `supabase/step3_notes_crud.sql`(본문 칸 `content`→`body`, `id`를 `uuid` 기본값 `gen_random_uuid()`로, `service_role`에만 읽기·추가·수정·삭제 권한)입니다. 새로 만들 때는 `supabase/vault_notes.sql` 하나로 같은 모양이 됩니다.
+
+### 남은 약점 (4단계에서 막을 것)
+
+- 서버는 로그인 여부만 확인하고 메모 주인을 비교하지 않습니다. 그래서 B로 로그인해도 A 메모의 `id`를 알면 `GET`·`PUT`·`DELETE /api/notes/:id`가 됩니다(목록은 자기 메모만 보임).
+- 2단계 이전에 만든 가상 메모 네 건은 `owner_id`가 비어 있어 누구의 목록에도 나오지 않습니다.
+
+### 3단계 확인 절차
+
+1. 시크릿 창에서 배포 주소를 열면 로그인 칸만 보이고 메모는 보이지 않습니다. 같은 창에서 `/api/notes`를 열면 `401`과 `{"error":"로그인이 필요합니다."}`가 보입니다.
+2. A 계정(Supabase Authentication → Users에서 학생이 직접 만듦)으로 로그인하면 "내 메모"와 추가 칸이 보입니다. 틀린 비밀번호를 넣으면 실패 이유가 보입니다.
+3. 가상 메모를 추가 → 수정 → 삭제(삭제는 버튼을 두 번)하고, 로그아웃하면 다시 로그인 칸만 보입니다.
+4. 자기 점검 `npm run bundle`은 토큰 없음·위조 토큰 요청이 거절되는지 실제로 보내 기록합니다. A 로그인 확인은 비밀번호가 필요해 미실행으로 남깁니다.
 
 ## 2단계: 자료를 코드 밖으로 옮김
 
@@ -32,9 +65,9 @@
 - 메모 본문(시드)은 공개 저장소에 남기지 않도록 커밋하지 않는 `supabase/*.local.sql`로만 두고 SQL Editor에서 실행했습니다.
 - 화면은 Vercel 서버 함수 `api/notes.js`를 부릅니다. 함수는 Vercel 환경변수 `SUPABASE_URL`, `SUPABASE_SECRET_KEY`(서버 전용)를 읽고, 키를 브라우저 파일·응답·로그에 넣지 않습니다.
 
-### 남은 약점 (3단계에서 막을 것)
+### 2단계 당시 남은 약점 (3단계에서 막음)
 
-- `/api/notes`는 공개 주소입니다. 로그인 없이 누구나 불러 가상 메모 네 건을 읽을 수 있습니다. 그래서 지금은 가상 메모만 둡니다.
+- 2단계의 `/api/notes`는 로그인 없이 누구나 불러 가상 메모 네 건을 읽을 수 있었습니다. 3단계에서 토큰 검사로 막았습니다.
 
 ### 메모 문장 검색 확인 절차
 
@@ -50,7 +83,8 @@
 
 1. Supabase SQL Editor에서 `supabase/vault_notes.sql`을 실행하고, 가상 메모 시드를 넣습니다.
 2. Vercel 프로젝트 Settings → Environment Variables에 `SUPABASE_URL`, `SUPABASE_SECRET_KEY`를 넣고 Redeploy 합니다.
-3. 정상: `/`에 카드 네 개, `/api/notes`가 JSON 네 건. 거부되어야 할 것: `/data.json`은 404.
+3. 정상(3단계 기준): 로그인 전 `/`에는 로그인 칸만, A 로그인 뒤에는 A의 메모. 거부되어야 할 것: `/data.json`은 404, 토큰 없는 `/api/notes`는 401.
+4. 3단계부터는 `supabase/step3_notes_crud.sql`을 한 번 더 실행하고, Supabase Authentication → Users에서 확인용 A 계정을 직접 만듭니다(비밀번호는 저장소·채팅에 적지 않음).
 
 ## 다음 단계의 코딩 도구에 전달할 규칙
 
