@@ -101,28 +101,35 @@ export async function runAttackChecks(config) {
       headers: { Authorization: `Bearer ${forgedToken(config)}` },
     })) });
 
-  // 7) 직접 Data API: 공개(anon) 키로 Supabase REST에서 메모 표를 읽을 수 있는지
-  const supabaseOrigin = config.identityProvider?.issuer
-    ? new URL(config.identityProvider.issuer).origin : null;
+  // 7) 원본 자료 API(originalApiUrl)를 공개(anon) 키로 직접 불러 메모가 나오는지
   const anonKey = process.env.SUPABASE_PUBLISHABLE_KEY;
-  if (supabaseOrigin && anonKey) {
-    const direct = await send(new URL(`${supabaseOrigin}/`), '/rest/v1/vault_notes?select=id,title&limit=5', {
+  if (typeof config.originalApiUrl === 'string' && anonKey) {
+    const original = new URL(config.originalApiUrl);
+    const direct = await send(new URL(`${original.origin}/`), `${original.pathname}?select=id,title&limit=5`, {
       headers: { apikey: anonKey, Authorization: `Bearer ${anonKey}` },
     });
     let rows = null;
     try { rows = JSON.parse(direct.text); } catch { rows = null; }
     const leaked = Array.isArray(rows) && rows.length > 0;
-    results.push({ attackId: 'anon_direct_data_api_read',
-      expected: '공개(anon) 키로 메모 표를 직접 읽으면 거절되거나 0건',
+    results.push({ attackId: 'anon_original_api_read',
+      expected: '원본 자료 API를 공개(anon) 키로 직접 읽으면 거절되거나 0건',
       observed: leaked ? `거절되지 않음 (HTTP ${direct.status}, ${rows.length}건 보임)`
         : `메모 0건 (HTTP ${direct.status})` });
   } else {
-    results.push({ attackId: 'anon_direct_data_api_read',
-      expected: '공개(anon) 키로 메모 표를 직접 읽으면 거절되거나 0건',
+    results.push({ attackId: 'anon_original_api_read',
+      expected: '원본 자료 API를 공개(anon) 키로 직접 읽으면 거절되거나 0건',
       observed: '미실행: SUPABASE_PUBLISHABLE_KEY 환경변수를 주지 않아 보내지 않음' });
   }
 
-  // 8) A/B 교차 접근(B가 A 메모 읽기·수정·삭제, 소유자 변경)은 두 계정의 실제 토큰이 필요해 여기서 보내지 않습니다.
+  // 8) 공개 첫 화면에 Supabase 키·서버 키·시드 표식이 있는지
+  const exposed = [/sb_publishable_/u, /sb_secret_/u, /eyJhbGci/u, new RegExp(config.sampleMarker, 'u')]
+    .filter((pattern) => pattern.test(page.text)).length;
+  results.push({ attackId: 'static_page_key_search',
+    expected: '첫 화면에 Supabase 공개 키·서버 키·시드 표식이 없어야 함',
+    observed: exposed ? `첫 화면에서 키 또는 표식 ${exposed}종이 보임 (HTTP ${page.status})`
+      : `첫 화면에서 키·표식이 보이지 않음 (HTTP ${page.status})` });
+
+  // 9) A/B 교차 접근(B가 A 메모 읽기·수정·삭제, 소유자 변경)은 두 계정의 실제 토큰이 필요해 여기서 보내지 않습니다.
   results.push({ attackId: 'cross_owner_note_access',
     expected: 'B가 A 메모를 읽기·수정·삭제하거나 소유자를 바꾸면 거절, 각자 자기 메모는 허용',
     observed: '미실행: 두 계정의 실제 로그인 토큰이 필요해 자동 점검에서 보내지 않음. 배포 화면과 test/r5.test.mjs로 확인' });
