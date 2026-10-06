@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { deploymentIdentity } from '../scripts/deployment-identity.mjs';
 import { runAttackChecks } from '../src/attack-check.mjs';
-import { createCollectionHandler, createItemHandler } from '../api/_notes-lib.js';
+import { createCollectionHandler, createItemHandler, supabaseNotes } from '../api/_notes-lib.js';
 
 const config = {
   step: 3,
@@ -56,6 +56,7 @@ test('stage 3 checks: unauthenticated and forged requests are refused', async ()
     assert.match(results[1].observed, /보이지 않음/u);
     for (const item of results.slice(2, 6)) assert.match(item.observed, /HTTP 401로 거절, JSON 오류 문구 있음/u);
     assert.match(results[6].observed, /^미실행/u);
+    assert.match(results[7].observed, /^미실행/u);
     for (const item of results) assert.doesNotMatch(item.observed, /eyJ|Bearer/u);
 
     globalThis.fetch = async () => new Response('[{"title":"a"}]', { status: 200 });
@@ -88,14 +89,18 @@ function fakeDeps() {
         rows.set(id, { id, owner_id: ownerId, title, body });
         return 'created';
       },
-      async get(id) {
-        const r = rows.get(id); return r ? { id: r.id, title: r.title, body: r.body } : null;
+      async getOwned(id, owner) {
+        const r = rows.get(id);
+        return r && r.owner_id === owner ? { id: r.id, title: r.title, body: r.body } : null;
       },
-      async update(id, { title, body }) {
-        const r = rows.get(id); if (!r) return null;
+      async updateOwned(id, owner, { title, body }) {
+        const r = rows.get(id); if (!r || r.owner_id !== owner) return null;
         Object.assign(r, { title, body }); return { id, title, body };
       },
-      async remove(id) { return rows.delete(id); },
+      async removeOwned(id, owner) {
+        const r = rows.get(id); if (!r || r.owner_id !== owner) return false;
+        return rows.delete(id);
+      },
     },
   };
 }
@@ -158,8 +163,51 @@ test('stage 3 API: login required, CRUD contract, owner_id from server', async (
   assert.equal((await call(item, { token: 'a.a.a', id: 'not-a-uuid' })).statusCode, 404);
   assert.equal((await call(item, { method: 'PATCH', token: 'a.a.a', id: given })).statusCode, 405);
 
-  // 남은 약점 기록: 3단계에서는 B도 A의 메모를 읽을 수 있음(4단계에서 막음)
-  assert.equal((await call(item, { token: 'b.b.b', id: created.payload.id })).statusCode, 200);
+});
+
+test('stage 4 API: owners only — B cannot read, change, or delete A notes', async () => {
+  const deps = fakeDeps();
+  const list = createCollectionHandler(() => deps);
+  const item = createItemHandler(() => deps);
+  const aNote = (await call(list, { method: 'POST', token: 'a.a.a', body: { title: 'A 메모', body: 'a' } })).payload.id;
+  const bNote = (await call(list, { method: 'POST', token: 'b.b.b', body: { title: 'B 메모', body: 'b' } })).payload.id;
+
+  // 목록은 각자 자기 것만
+  assert.deepEqual((await call(list, { token: 'a.a.a' })).payload.map(n => n.id), [aNote]);
+  assert.deepEqual((await call(list, { token: 'b.b.b' })).payload.map(n => n.id), [bNote]);
+
+  // B → A 메모: 읽기·수정·삭제 모두 404, A 메모는 그대로
+  assert.equal((await call(item, { token: 'b.b.b', id: aNote })).statusCode, 404);
+  const hijack = await call(item, { method: 'PUT', token: 'b.b.b', id: aNote, body: { title: '빼앗음', body: 'x' } });
+  assert.equal(hijack.statusCode, 404);
+  assert.equal(typeof hijack.payload.error, 'string');
+  assert.equal((await call(item, { method: 'DELETE', token: 'b.b.b', id: aNote })).statusCode, 404);
+  assert.deepEqual(deps.rows.get(aNote), { id: aNote, owner_id: USER_A, title: 'A 메모', body: 'a' });
+
+  // 소유자 변경 시도: 본인 메모라도 owner_id를 남으로 바꾸면 403, 행은 그대로
+  for (const field of ['owner_id', 'ownerId', 'userId']) {
+    const moved = await call(item, { method: 'PUT', token: 'a.a.a', id: aNote,
+      body: { title: '넘김', body: 'x', [field]: USER_B } });
+    assert.equal(moved.statusCode, 403);
+  }
+  assert.equal(deps.rows.get(aNote).owner_id, USER_A);
+  assert.equal(deps.rows.get(aNote).title, 'A 메모');
+
+  // 본인 ID를 같이 보내는 정상 수정은 허용
+  const own = await call(item, { method: 'PUT', token: 'a.a.a', id: aNote, body: { title: '고침', body: 'b', owner_id: USER_A } });
+  assert.deepEqual(own.payload, { id: aNote, title: '고침', body: 'b' });
+
+  // 추가할 때 본문의 owner_id·userId는 무시하고 검증된 ID로 저장
+  const forged = await call(list, { method: 'POST', token: 'b.b.b', body: { title: 't', body: '', owner_id: USER_A, userId: USER_A } });
+  assert.equal(deps.rows.get(forged.payload.id).owner_id, USER_B);
+
+  // 남의 메모 id로 POST를 해도 덮어쓰지 못함(409), 내용 그대로
+  assert.equal((await call(list, { method: 'POST', token: 'b.b.b', body: { id: aNote, title: 'x', body: 'x' } })).statusCode, 409);
+  assert.equal(deps.rows.get(aNote).owner_id, USER_A);
+
+  // 각자 자기 메모 삭제는 가능
+  assert.equal((await call(item, { method: 'DELETE', token: 'b.b.b', id: bNote })).statusCode, 204);
+  assert.equal((await call(item, { method: 'DELETE', token: 'a.a.a', id: aNote })).statusCode, 204);
 });
 
 test('stage 3 API: server misconfiguration never returns notes', async () => {
@@ -167,4 +215,32 @@ test('stage 3 API: server misconfiguration never returns notes', async () => {
   const res = await call(list, { token: 'a.a.a' });
   assert.equal(res.statusCode, 500);
   assert.equal(Array.isArray(res.payload), false);
+});
+
+test('stage 4 DB queries: every read/update/delete is filtered by owner_id', async () => {
+  const calls = [];
+  const builder = (op) => {
+    const chain = { op, filters: [] };
+    calls.push(chain);
+    const api = {
+      select: () => api, order: () => api, update: () => api, delete: () => api, insert: () => api,
+      eq: (column, value) => { chain.filters.push([column, value]); return api; },
+      maybeSingle: async () => ({ data: null, error: null }),
+      then: (resolve) => resolve({ data: [], error: null }),
+    };
+    return api;
+  };
+  const db = { from: () => ({
+    select: (...a) => builder('select').select(...a),
+    update: (...a) => builder('update').update(...a),
+    delete: (...a) => builder('delete').delete(...a),
+    insert: async () => ({ error: null }),
+  }) };
+  const notes = supabaseNotes(db);
+  await notes.listByOwner(USER_A);
+  await notes.getOwned('n1', USER_A);
+  await notes.updateOwned('n1', USER_A, { title: 't', body: 'b' });
+  await notes.removeOwned('n1', USER_A);
+  assert.equal(calls.length, 4);
+  for (const c of calls) assert.ok(c.filters.some(([col, v]) => col === 'owner_id' && v === USER_A), c.op);
 });
