@@ -18,6 +18,40 @@
 
 로컬에서 가상 화면만 확인할 때는 `npm run build -- --local`을 사용합니다. 로컬 실행은 Vercel 배포나 심판 접수를 증명하지 않습니다. 저장소의 `src/attack-check.mjs`는 실제 배포가 된 뒤 `/data.json`을 비로그인으로 요청해 공개 가상 메모의 확인 표시를 읽습니다.
 
+## 단계 기록
+
+| 단계 | 상태 | 한 일 |
+| --- | --- | --- |
+| 1단계 | 통과 | 시작 틀을 그대로 배포해 `/`와 `/data.json`에서 가상 메모 네 건이 공개된 것을 확인 |
+| 2단계 | 이 커밋 | 메모를 정적 파일·코드에서 빼고 학습용 Supabase 테이블과 서버 함수 `/api/notes`로 옮김 |
+
+## 2단계: 자료를 코드 밖으로 옮김
+
+- `data.json`과 `public/data.json`을 저장소에서 지웠고, 빌드(`npm run build`)는 더 이상 공개 `data.json`을 만들지 않습니다.
+- 메모는 Supabase 테이블 `vault_notes`에 있습니다. 표 구조는 `supabase/vault_notes.sql`입니다(`owner_id uuid` 칸, auth.users 외래키 없음, RLS 켬, anon·authenticated 권한 없음).
+- 메모 본문(시드)은 공개 저장소에 남기지 않도록 커밋하지 않는 `supabase/*.local.sql`로만 두고 SQL Editor에서 실행했습니다.
+- 화면은 Vercel 서버 함수 `api/notes.js`를 부릅니다. 함수는 Vercel 환경변수 `SUPABASE_URL`, `SUPABASE_SECRET_KEY`(서버 전용)를 읽고, 키를 브라우저 파일·응답·로그에 넣지 않습니다.
+
+### 남은 약점 (3단계에서 막을 것)
+
+- `/api/notes`는 공개 주소입니다. 로그인 없이 누구나 불러 가상 메모 네 건을 읽을 수 있습니다. 그래서 지금은 가상 메모만 둡니다.
+
+### 메모 문장 검색 확인 절차
+
+1. 현재 배포 파일: 시크릿 창에서 `/data.json`을 열어 404인지, `/`의 페이지 소스(Ctrl+U)에 `실습용 가상`이 없는지 봅니다. 화면에는 `/api/notes`로 읽은 카드 네 개가 보여야 합니다.
+2. GitHub 최신 파일: 저장소 기본 브랜치에서 `실습용 가상`을 코드 검색하거나, 로컬에서 `git grep -n "실습용 가상" HEAD`를 실행해 결과가 없는지 봅니다.
+3. 자기 점검: `npm run bundle`이 `src/attack-check.mjs`로 `/data.json`·`/`·`/api/notes`를 비로그인으로 요청한 결과를 기록합니다. 이 결과는 심판 판정이 아닙니다.
+
+### 옛 공개 이력의 한계
+
+- 1단계 커밋(`0f9a3c9`)과 그 커밋으로 만든 옛 Vercel 배포에는 가상 메모가 그대로 남아 있습니다. 최신 파일에서 지웠다고 과거 노출이 해소된 것은 아닙니다. 실제 자료였다면 이력 정리와 옛 배포 삭제, 노출된 값 교체가 따로 필요합니다.
+
+### 다시 실행하는 방법
+
+1. Supabase SQL Editor에서 `supabase/vault_notes.sql`을 실행하고, 가상 메모 시드를 넣습니다.
+2. Vercel 프로젝트 Settings → Environment Variables에 `SUPABASE_URL`, `SUPABASE_SECRET_KEY`를 넣고 Redeploy 합니다.
+3. 정상: `/`에 카드 네 개, `/api/notes`가 JSON 네 건. 거부되어야 할 것: `/data.json`은 404.
+
 ## 다음 단계의 코딩 도구에 전달할 규칙
 
 [AGENTS.md](AGENTS.md)를 먼저 읽히고 한 번에 한 제작 단위만 요청하세요. 2단계부터는 자료 보호를 구현할 때 `public/data.json`을 복사하는 1단계 빌드 흐름도 함께 바꿔야 합니다. 3단계 이후의 로그인, 허용 경로, 5단계의 원본 API 주소, 6단계 이후 정책 규칙은 해당 단계 원고와 계약에 맞춰 추가합니다. 비밀번호·토큰·서버 전용 키·실제 학생 기록을 코드, Git, 제출 묶음에 넣지 않습니다.
