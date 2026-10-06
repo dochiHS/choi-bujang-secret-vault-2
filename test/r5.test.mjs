@@ -56,7 +56,8 @@ test('stage 3 checks: unauthenticated and forged requests are refused', async ()
     assert.match(results[1].observed, /보이지 않음/u);
     for (const item of results.slice(2, 6)) assert.match(item.observed, /HTTP 401로 거절, JSON 오류 문구 있음/u);
     assert.match(results[6].observed, /^미실행/u);
-    assert.match(results[7].observed, /^미실행/u);
+    assert.match(results[7].observed, /보이지 않음/u);
+    assert.match(results[8].observed, /^미실행/u);
     for (const item of results) assert.doesNotMatch(item.observed, /eyJ|Bearer/u);
 
     globalThis.fetch = async () => new Response('[{"title":"a"}]', { status: 200 });
@@ -243,4 +244,67 @@ test('stage 4 DB queries: every read/update/delete is filtered by owner_id', asy
   await notes.removeOwned('n1', USER_A);
   assert.equal(calls.length, 4);
   for (const c of calls) assert.ok(c.filters.some(([col, v]) => col === 'owner_id' && v === USER_A), c.op);
+});
+
+// ---- 5단계: 로그인 서버 함수 (가짜 Supabase Auth) ----
+import { createLoginHandler, createRefreshHandler, createLogoutHandler } from '../api/_auth-lib.js';
+
+function fakeAuth() {
+  const seen = [];
+  const session = (n) => ({ access_token: `at${n}`, refresh_token: `rt${n}`, expires_at: 2000000000,
+    token_type: 'bearer', user: { email: 'a@example.test', id: USER_A, role: 'authenticated' } });
+  return {
+    seen,
+    async signInWithPassword({ email, password }) {
+      seen.push(['login', email]);
+      if (password === 'right-pass') return { data: { session: session(1) }, error: null };
+      return { data: { session: null }, error: { code: 'invalid_credentials', status: 400 } };
+    },
+    async refreshSession({ refresh_token }) {
+      seen.push(['refresh']);
+      if (refresh_token === 'rt1') return { data: { session: session(2) }, error: null };
+      return { data: { session: null }, error: { code: 'refresh_token_not_found', status: 400 } };
+    },
+    admin: { async signOut(jwt, scope) { seen.push(['logout', jwt, scope]); return { error: null }; } },
+  };
+}
+
+test('stage 5 auth: login, refresh and logout run on the server', async () => {
+  const auth = fakeAuth();
+  const login = createLoginHandler(() => auth);
+  const refresh = createRefreshHandler(() => auth);
+  const logout = createLogoutHandler(() => auth);
+
+  const ok = await call(login, { method: 'POST', body: { email: ' a@example.test ', password: 'right-pass' } });
+  assert.equal(ok.statusCode, 200);
+  assert.deepEqual(Object.keys(ok.payload).sort(), ['access_token', 'expires_at', 'refresh_token', 'user']);
+  assert.deepEqual(ok.payload.user, { email: 'a@example.test' });
+  assert.equal(ok.headers['cache-control'], 'no-store');
+  assert.deepEqual(auth.seen[0], ['login', 'a@example.test']);
+
+  const bad = await call(login, { method: 'POST', body: { email: 'a@example.test', password: 'wrong' } });
+  assert.equal(bad.statusCode, 401);
+  assert.equal(bad.payload.code, 'invalid_credentials');
+  assert.match(bad.payload.error, /맞지 않습니다/u);
+  assert.equal(JSON.stringify(bad.payload).includes('wrong'), false);
+
+  assert.equal((await call(login, { method: 'POST', body: { email: 'not-an-email', password: 'x' } })).statusCode, 400);
+  assert.equal((await call(login, { method: 'GET' })).statusCode, 405);
+
+  const renewed = await call(refresh, { method: 'POST', body: { refresh_token: 'rt1' } });
+  assert.equal(renewed.payload.access_token, 'at2');
+  assert.equal((await call(refresh, { method: 'POST', body: { refresh_token: 'gone' } })).statusCode, 401);
+
+  assert.equal((await call(logout, { method: 'POST', token: 'at2' })).statusCode, 204);
+  assert.deepEqual(auth.seen.at(-1), ['logout', 'at2', 'local']);
+  assert.equal((await call(logout, { method: 'POST' })).statusCode, 401);
+});
+
+test('stage 5 page: no Supabase key, address, or SDK in public files', async () => {
+  const { readFileSync, readdirSync } = await import('node:fs');
+  for (const name of readdirSync(new URL('../public/', import.meta.url))) {
+    if (!/\.(html|js|css|json)$/u.test(name) || name === 'aleph.json') continue;
+    const text = readFileSync(new URL(`../public/${name}`, import.meta.url), 'utf8');
+    assert.doesNotMatch(text, /sb_publishable_|sb_secret_|supabase\.co|supabase-js|eyJhbGci/u, name);
+  }
 });
