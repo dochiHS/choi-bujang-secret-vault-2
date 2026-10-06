@@ -3,10 +3,11 @@ import { randomUUID } from 'node:crypto';
 import { createClient } from '@supabase/supabase-js';
 import { createLoginVerifier } from '../src/verify-login.mjs';
 
-// 3단계 공통: 로그인 토큰 검사 + 가상 메모 추가·읽기·수정·삭제.
+// 공통: 로그인 토큰 검사 + 가상 메모 추가·읽기·수정·삭제.
 // 파일 이름이 _로 시작하므로 Vercel은 이 파일을 공개 경로로 만들지 않습니다.
 // 서버 전용 키는 Vercel 환경변수에서만 읽고, 응답·로그에 넣지 않습니다.
-// 남은 약점(4단계에서 막을 것): 한 건 읽기·수정·삭제에서 메모 주인을 아직 비교하지 않습니다.
+// 4단계: 모든 DB 질의에 owner_id = (서버가 검증한 사용자 ID) 조건을 함께 겁니다.
+// 서버 전용 키는 RLS를 건너뛰므로, 이 조건이 빠진 질의를 새로 만들지 마세요.
 
 export const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/iu;
 const TITLE_MAX = 200;
@@ -49,19 +50,25 @@ export function supabaseNotes(db) {
       if (error) throw error;
       return 'created';
     },
-    async get(id) {
-      const { data, error } = await table().select(COLUMNS).eq('id', id).maybeSingle();
+    // 본인 메모만 찾습니다. 남의 메모나 없는 메모는 똑같이 null(→ 404)이라 존재 여부도 새지 않습니다.
+    async getOwned(id, ownerId) {
+      const { data, error } = await table().select(COLUMNS)
+        .eq('id', id).eq('owner_id', ownerId).maybeSingle();
       if (error) throw error;
       return data ?? null;
     },
-    async update(id, { title, body }) {
+    // 기존 행이 본인 것일 때만 고치고, owner_id는 바꾸지 않으므로 새 행도 본인 소유로 남습니다.
+    async updateOwned(id, ownerId, { title, body }) {
       const { data, error } = await table().update({ title, body })
-        .eq('id', id).select(COLUMNS).maybeSingle();
+        .eq('id', id).eq('owner_id', ownerId).select(`${COLUMNS}, owner_id`).maybeSingle();
       if (error) throw error;
-      return data ?? null;
+      if (!data) return null;
+      if (data.owner_id !== ownerId) throw new Error('owner_changed');
+      return { id: data.id, title: data.title, body: data.body };
     },
-    async remove(id) {
-      const { data, error } = await table().delete().eq('id', id).select('id');
+    async removeOwned(id, ownerId) {
+      const { data, error } = await table().delete()
+        .eq('id', id).eq('owner_id', ownerId).select('id');
       if (error) throw error;
       return Array.isArray(data) && data.length > 0;
     },
@@ -91,6 +98,15 @@ function noteInput(raw) {
   if (title.trim().length > TITLE_MAX) return { error: `제목은 ${TITLE_MAX}자 이하입니다.` };
   if (body.length > BODY_MAX) return { error: `본문은 ${BODY_MAX}자 이하입니다.` };
   return { title: title.trim(), body };
+}
+
+// 수정 본문에 다른 사람을 가리키는 소유자 값이 있으면 소유자 변경 시도로 보고 거절합니다.
+// (저장할 때는 어차피 이 값을 쓰지 않습니다. 본인 ID와 같으면 그냥 무시합니다.)
+const OWNER_FIELDS = ['owner_id', 'ownerId', 'owner', 'user_id', 'userId'];
+function changesOwner(raw, userId) {
+  if (!raw) return false;
+  return OWNER_FIELDS.some((key) => key in raw
+    && String(raw[key]).toLowerCase() !== userId.toLowerCase());
 }
 
 // 로그인 확인. 토큰이 없거나 검증에 실패하면 자료 없이 401을 돌려줍니다.
@@ -180,17 +196,23 @@ export function createItemHandler(getDeps = defaultDeps) {
     }
     const id = rawId.toLowerCase();
 
+    // 본인 메모가 아니면 없는 메모와 똑같이 404로 거절합니다(기본 거부).
     if (req.method === 'GET') {
-      const note = await deps.notes.get(id);
+      const note = await deps.notes.getOwned(id, user.userId);
       return note ? send(res, 200, note) : send(res, 404, { error: '메모를 찾을 수 없습니다.' });
     }
     if (req.method === 'PUT') {
-      const input = noteInput(readBody(req));
+      const raw = readBody(req);
+      if (changesOwner(raw, user.userId)) {
+        return send(res, 403, { error: '메모 소유자는 바꿀 수 없습니다.' });
+      }
+      const input = noteInput(raw);
       if (input.error) return send(res, 400, { error: input.error });
-      const note = await deps.notes.update(id, { title: input.title, body: input.body });
+      const note = await deps.notes.updateOwned(id, user.userId,
+        { title: input.title, body: input.body });
       return note ? send(res, 200, note) : send(res, 404, { error: '메모를 찾을 수 없습니다.' });
     }
-    const removed = await deps.notes.remove(id);
+    const removed = await deps.notes.removeOwned(id, user.userId);
     return removed ? send(res, 204) : send(res, 404, { error: '메모를 찾을 수 없습니다.' });
   }, getDeps);
 }
