@@ -13,6 +13,13 @@ await rm(resolve(root, 'public', 'data.json'), { force: true });
 console.log('공개 data.json은 만들지 않습니다. 메모는 /api/notes 서버 함수가 읽습니다.');
 if (!process.argv.includes('--local')) {
   const identity = deploymentIdentity(process.env, config);
+  // 5단계: 심판이 배포에서 바로 볼 수 있게 허용 경로와 원본 자료 API 주소도 함께 적습니다(비밀값 없음).
+  if (Array.isArray(config.allowedRoutes) && config.allowedRoutes.length) {
+    identity.allowedRoutes = config.allowedRoutes.filter((route) => typeof route === 'string');
+  }
+  if (typeof config.originalApiUrl === 'string' && config.originalApiUrl.startsWith('https://')) {
+    identity.originalApiUrl = config.originalApiUrl;
+  }
   await writeFile(resolve(root, 'public', 'aleph.json'),
     `${JSON.stringify(identity, null, 2)}\n`, 'utf8');
   console.log('배포 저장소·커밋·주소를 public/aleph.json에 기록했습니다.');
