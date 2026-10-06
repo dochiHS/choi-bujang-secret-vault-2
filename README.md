@@ -24,7 +24,22 @@
 | --- | --- | --- |
 | 1단계 | 통과 | 시작 틀을 그대로 배포해 `/`와 `/data.json`에서 가상 메모 네 건이 공개된 것을 확인 |
 | 2단계 | 통과 | 메모를 정적 파일·코드에서 빼고 학습용 Supabase 테이블과 서버 함수 `/api/notes`로 옮김. 재제출로 보안 헤더(`X-Content-Type-Options: nosniff`) 추가 |
-| 3단계 | 이 커밋 | Supabase Auth 이메일·비밀번호 로그인·로그아웃, 서버의 토큰 검사(`src/verify-login.mjs`), 로그인 사용자의 가상 메모 추가·수정·삭제 |
+| 3단계 | 통과 | Supabase Auth 이메일·비밀번호 로그인·로그아웃, 서버의 토큰 검사(`src/verify-login.mjs`), 로그인 사용자의 가상 메모 추가·수정·삭제 |
+| 4단계 | 이 커밋 | API가 검증된 사용자 ID와 메모 `owner_id`를 비교(남의 메모 404, 소유자 변경 403), 메모 표에 RLS 자기 행 정책과 최소 권한 |
+
+## 4단계: 로그인해도 내 자료만
+
+- API(`api/_notes-lib.js`)의 모든 DB 질의에 `owner_id = 서버가 검증한 사용자 ID` 조건이 붙습니다. 목록은 자기 메모만, 한 건 읽기·수정·삭제는 자기 메모일 때만 됩니다. 남의 메모는 없는 메모와 똑같이 `404`라 존재 여부도 알려 주지 않습니다(기본 거부).
+- URL·본문의 `owner_id`·`userId`는 믿지 않습니다. 추가할 때는 검증된 ID로 저장하고, 수정 본문이 다른 사람을 소유자로 가리키면 `403`으로 거절합니다. 수정은 `owner_id`를 바꾸지 않으므로 기존 행과 새 행 모두 본인 소유입니다. 남의 메모 `id`로 `POST`해도 덮어쓰지 못하고 `409`입니다.
+- 서버 함수는 서버 전용 키를 써서 RLS를 건너뛰므로 위 조건이 1차 방어입니다. DB에는 두 번째 벽으로 `supabase/step4_rls.sql`을 적용했습니다: `public, anon, authenticated` 권한을 모두 회수한 뒤 `authenticated`에 `SELECT·INSERT·UPDATE·DELETE`만 주고, 네 동작 모두 `auth.uid() = owner_id`일 때만 허용(`SELECT·DELETE`는 `USING`, `INSERT`는 `WITH CHECK`, `UPDATE`는 둘 다). `anon`은 권한이 없어 공개 키로 Supabase Data API를 직접 불러도 메모를 읽지 못합니다.
+- 확인용 소유 관계는 `supabase/step4_owner_seed.sql`(자리표시자만 커밋)로 만들었습니다: 기존 가상 메모 세 건은 A 소유, B 소유 시험 메모 한 건. 이메일과 메모 문장은 저장소에 넣지 않았습니다.
+
+### 4단계 확인 절차
+
+1. A로 로그인: 자기 메모 세 건이 보이고, 추가·수정·삭제가 됩니다. B의 시험 메모는 보이지 않습니다.
+2. B로 로그인(다른 창): B 시험 메모 한 건만 보이고 A 메모는 보이지 않습니다. 자기 메모 추가·수정·삭제는 됩니다.
+3. 거부되어야 할 것: B 토큰으로 A 메모 `id`에 `GET`·`PUT`·`DELETE` → `404`, 소유자를 바꾸는 `PUT` → `403`, 토큰 없는 요청 → `401`, 공개(anon) 키로 `…/rest/v1/vault_notes` 직접 조회 → 거절 또는 0건.
+4. `npm run test:r5`가 교차 접근·소유자 변경·DB 질의의 owner 조건을 가짜 토큰과 메모리 DB로 검사합니다(실제 심판 판정 아님).
 
 ## 3단계: 진짜 로그인을 붙임
 
@@ -46,10 +61,9 @@
 - 추가할 때 `owner_id`는 서버가 확인한 로그인 사용자 ID로 저장합니다(`api/_notes-lib.js`).
 - 표 변경은 `supabase/step3_notes_crud.sql`(본문 칸 `content`→`body`, `id`를 `uuid` 기본값 `gen_random_uuid()`로, `service_role`에만 읽기·추가·수정·삭제 권한)입니다. 새로 만들 때는 `supabase/vault_notes.sql` 하나로 같은 모양이 됩니다.
 
-### 남은 약점 (4단계에서 막을 것)
+### 3단계 당시 남은 약점 (4단계에서 막음)
 
-- 서버는 로그인 여부만 확인하고 메모 주인을 비교하지 않습니다. 그래서 B로 로그인해도 A 메모의 `id`를 알면 `GET`·`PUT`·`DELETE /api/notes/:id`가 됩니다(목록은 자기 메모만 보임).
-- 2단계 이전에 만든 가상 메모 네 건은 `owner_id`가 비어 있어 누구의 목록에도 나오지 않습니다.
+- 3단계 서버는 로그인 여부만 확인해서, B도 A 메모의 `id`를 알면 읽기·수정·삭제가 됐습니다. 4단계에서 소유자 비교와 RLS로 막았습니다.
 
 ### 3단계 확인 절차
 
@@ -85,6 +99,7 @@
 2. Vercel 프로젝트 Settings → Environment Variables에 `SUPABASE_URL`, `SUPABASE_SECRET_KEY`를 넣고 Redeploy 합니다.
 3. 정상(3단계 기준): 로그인 전 `/`에는 로그인 칸만, A 로그인 뒤에는 A의 메모. 거부되어야 할 것: `/data.json`은 404, 토큰 없는 `/api/notes`는 401.
 4. 3단계부터는 `supabase/step3_notes_crud.sql`을 한 번 더 실행하고, Supabase Authentication → Users에서 확인용 A 계정을 직접 만듭니다(비밀번호는 저장소·채팅에 적지 않음).
+5. 4단계부터는 B 계정도 만들고 `supabase/step4_owner_seed.sql`의 자리표시자를 바꿔 실행한 뒤 `supabase/step4_rls.sql`을 실행합니다.
 
 ## 다음 단계의 코딩 도구에 전달할 규칙
 
