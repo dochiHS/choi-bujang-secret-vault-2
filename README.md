@@ -25,7 +25,22 @@
 | 1단계 | 통과 | 시작 틀을 그대로 배포해 `/`와 `/data.json`에서 가상 메모 네 건이 공개된 것을 확인 |
 | 2단계 | 통과 | 메모를 정적 파일·코드에서 빼고 학습용 Supabase 테이블과 서버 함수 `/api/notes`로 옮김. 재제출로 보안 헤더(`X-Content-Type-Options: nosniff`) 추가 |
 | 3단계 | 통과 | Supabase Auth 이메일·비밀번호 로그인·로그아웃, 서버의 토큰 검사(`src/verify-login.mjs`), 로그인 사용자의 가상 메모 추가·수정·삭제 |
-| 4단계 | 이 커밋 | API가 검증된 사용자 ID와 메모 `owner_id`를 비교(남의 메모 404, 소유자 변경 403), 메모 표에 RLS 자기 행 정책과 최소 권한 |
+| 4단계 | 통과 | API가 검증된 사용자 ID와 메모 `owner_id`를 비교(남의 메모 404, 소유자 변경 403), 메모 표에 RLS 자기 행 정책과 최소 권한 |
+| 5단계 | 이 커밋 | 브라우저는 우리 서버 함수만 부름(로그인도 `/api/auth/*`로 이동, 화면에 Supabase 키·SDK 없음), 메모 표의 PUBLIC·anon·authenticated 직접 권한 회수, `originalApiUrl` 기록 |
+
+## 5단계: 자료 요청을 서버 한곳으로
+
+- 제작 1 점검 결과: 4단계까지 화면이 메모 자료를 Supabase에서 직접 읽거나 고치는 곳은 **없었습니다**(메모는 처음부터 `/api/notes`만 호출, Supabase는 로그인에만 사용).
+- 그다음 로그인도 서버로 옮겼습니다. `POST /api/auth/login`·`/api/auth/refresh`·`/api/auth/logout`(`api/_auth-lib.js`)이 브라우저 대신 Supabase Auth에 요청하고, 화면은 받은 토큰을 `Authorization: Bearer`로 `/api/notes`에 보냅니다. 그래서 화면 코드(`public/index.html`)에는 Supabase 주소·공개 키·SDK가 없습니다. 카드 제작 1의 "Auth 호출은 그대로" 이후에 따로 한 변경이며, 100점 조건(화면에 공개 키 없음)을 채우기 위해서입니다. 비밀번호는 서버 함수가 Supabase로 넘기기만 하고 저장·기록하지 않습니다.
+- 서버 함수의 로그인 검사(`src/verify-login.mjs`)와 소유자 검사(4단계)는 그대로입니다.
+- 제작 2: `supabase/step5_revoke_direct.sql`로 메모 표의 `PUBLIC·anon·authenticated` 권한을 모두 회수했습니다. 이제 공개 키만으로도, 공개 키+시험 계정 토큰으로도 원본 자료 API(`aleph.config.json`의 `originalApiUrl` = `https://krdfqgaagoozlgdnsbww.supabase.co/rest/v1/vault_notes`)를 직접 읽거나 고칠 수 없습니다(42501). 서버 함수는 서버 전용 키(service_role)를 써서 그대로 동작합니다. 4단계 RLS 정책은 예비 벽으로 남겨 두었습니다.
+
+### 5단계 확인 절차
+
+1. 시크릿 창: 로그인 칸만 보이고, 페이지 소스(Ctrl+U)에 `sb_publishable_`·`supabase.co`가 없습니다. 개발자 도구 Network 탭에는 이 사이트의 `/api/...` 요청만 보입니다.
+2. A 로그인: 자기 메모 세 건, 추가·수정·삭제 정상. B 로그인: B 메모만, A 메모 번호로 요청하면 404. 틀린 비밀번호는 실패 이유 표시.
+3. 거부되어야 할 것: 공개 키로 `originalApiUrl` 직접 조회·수정 → 401(42501), 공개 키+A/B 토큰으로 직접 조회·수정 → 401(42501), 토큰 없는 `/api/notes` → 401 JSON.
+4. `npm run test:r5`: 로그인 서버 함수, 공개 파일에 키 없음, 소유자 검사를 가짜 의존성으로 확인합니다(실제 심판 판정 아님).
 
 ## 4단계: 로그인해도 내 자료만
 
@@ -43,7 +58,7 @@
 
 ## 3단계: 진짜 로그인을 붙임
 
-- 화면(`public/index.html`)은 공식 SDK `@supabase/supabase-js@2.117.2`(jsDelivr ESM)의 `signInWithPassword`·`signOut`으로 로그인·로그아웃합니다. 실패하면 이유(예: 이메일 또는 비밀번호가 맞지 않음)를 화면에 보여 줍니다. 화면 코드에는 공개용 Project URL과 publishable key만 있습니다.
+- 3단계 당시 화면(`public/index.html`)은 공식 SDK `@supabase/supabase-js@2.117.2`(jsDelivr ESM)의 `signInWithPassword`·`signOut`으로 로그인·로그아웃했습니다(5단계에서 서버 함수로 이동). 실패하면 이유(예: 이메일 또는 비밀번호가 맞지 않음)를 화면에 보여 줍니다. 화면 코드에는 공개용 Project URL과 publishable key만 있습니다.
 - 자료 API는 `Authorization: Bearer <access_token>`만 믿습니다. 시작 틀의 `createLoginVerifier`(`src/verify-login.mjs`, 수정하지 않음)로 토큰을 검사하고, 브라우저가 보낸 `userId`·`role`·`owner_id`는 읽지 않습니다. 토큰이 없거나 검사에 실패하면 자료 없이 `401`과 JSON 오류 문구를 돌려줍니다.
 - 검사에 쓴 발급자 정보는 `aleph.config.json`의 `identityProvider`(발급자 `…/auth/v1`, 대상 `authenticated`, 공개키 주소 `…/auth/v1/.well-known/jwks.json`)에 있습니다. 비밀 키는 넣지 않습니다.
 - 함수가 `aleph.config.json`을 읽을 수 있게 `vercel.json`의 `functions."api/**/*.js".includeFiles`에 넣었습니다. 모든 응답에 `X-Content-Type-Options: nosniff`가 붙습니다.
@@ -100,6 +115,7 @@
 3. 정상(3단계 기준): 로그인 전 `/`에는 로그인 칸만, A 로그인 뒤에는 A의 메모. 거부되어야 할 것: `/data.json`은 404, 토큰 없는 `/api/notes`는 401.
 4. 3단계부터는 `supabase/step3_notes_crud.sql`을 한 번 더 실행하고, Supabase Authentication → Users에서 확인용 A 계정을 직접 만듭니다(비밀번호는 저장소·채팅에 적지 않음).
 5. 4단계부터는 B 계정도 만들고 `supabase/step4_owner_seed.sql`의 자리표시자를 바꿔 실행한 뒤 `supabase/step4_rls.sql`을 실행합니다.
+6. 5단계부터는 `supabase/step5_revoke_direct.sql`을 실행합니다. Vercel 환경변수는 그대로 `SUPABASE_URL`, `SUPABASE_SECRET_KEY` 두 개뿐입니다.
 
 ## 다음 단계의 코딩 도구에 전달할 규칙
 
