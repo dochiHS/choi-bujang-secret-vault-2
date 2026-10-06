@@ -33,6 +33,7 @@
 - 제작 1 점검 결과: 4단계까지 화면이 메모 자료를 Supabase에서 직접 읽거나 고치는 곳은 **없었습니다**(메모는 처음부터 `/api/notes`만 호출, Supabase는 로그인에만 사용).
 - 그다음 로그인도 서버로 옮겼습니다. `POST /api/auth/login`·`/api/auth/refresh`·`/api/auth/logout`(`api/_auth-lib.js`)이 브라우저 대신 Supabase Auth에 요청하고, 화면은 받은 토큰을 `Authorization: Bearer`로 `/api/notes`에 보냅니다. 그래서 화면 코드(`public/index.html`)에는 Supabase 주소·공개 키·SDK가 없습니다. 카드 제작 1의 "Auth 호출은 그대로" 이후에 따로 한 변경이며, 100점 조건(화면에 공개 키 없음)을 채우기 위해서입니다. 비밀번호는 서버 함수가 Supabase로 넘기기만 하고 저장·기록하지 않습니다.
 - 서버 함수의 로그인 검사(`src/verify-login.mjs`)와 소유자 검사(4단계)는 그대로입니다.
+- 빌드(`scripts/build-public.mjs`)가 배포 `/aleph.json`에 `aleph.config.json`의 `allowedRoutes`와 `originalApiUrl`도 함께 적습니다(비밀값 없음).
 - 제작 2: `supabase/step5_revoke_direct.sql`로 메모 표의 `PUBLIC·anon·authenticated` 권한을 모두 회수했습니다. 이제 공개 키만으로도, 공개 키+시험 계정 토큰으로도 원본 자료 API(`aleph.config.json`의 `originalApiUrl` = `https://krdfqgaagoozlgdnsbww.supabase.co/rest/v1/vault_notes`)를 직접 읽거나 고칠 수 없습니다(42501). 서버 함수는 서버 전용 키(service_role)를 써서 그대로 동작합니다. 4단계 RLS 정책은 예비 벽으로 남겨 두었습니다.
 
 ### 5단계 확인 절차
