@@ -55,7 +55,7 @@ function rejection(result) {
 
 export async function runAttackChecks(config) {
   if (!Number.isInteger(config.step) || config.step < 3) {
-    throw new Error('3단계 공격 점검입니다. aleph.config.json의 step을 확인해 주세요.');
+    throw new Error('3단계 이후 공격 점검입니다. aleph.config.json의 step을 확인해 주세요.');
   }
   if (typeof config.sampleMarker !== 'string' || !config.sampleMarker) throw new Error('가상 메모의 확인 표시를 넣어 주세요.');
   const app = appUrl(config);
@@ -101,9 +101,30 @@ export async function runAttackChecks(config) {
       headers: { Authorization: `Bearer ${forgedToken(config)}` },
     })) });
 
-  // 7) 정상 A 로그인 추가·수정·삭제는 실제 비밀번호·토큰이 필요해 이 자동 점검에서 보내지 않습니다.
-  results.push({ attackId: 'login_a_notes_crud',
-    expected: '정상 A 로그인은 메모 추가·수정·삭제 가능',
-    observed: '미실행: 실제 로그인 토큰이 필요해 자동 점검에서 보내지 않음. 배포 화면에서 직접 확인' });
+  // 7) 직접 Data API: 공개(anon) 키로 Supabase REST에서 메모 표를 읽을 수 있는지
+  const supabaseOrigin = config.identityProvider?.issuer
+    ? new URL(config.identityProvider.issuer).origin : null;
+  const anonKey = process.env.SUPABASE_PUBLISHABLE_KEY;
+  if (supabaseOrigin && anonKey) {
+    const direct = await send(new URL(`${supabaseOrigin}/`), '/rest/v1/vault_notes?select=id,title&limit=5', {
+      headers: { apikey: anonKey, Authorization: `Bearer ${anonKey}` },
+    });
+    let rows = null;
+    try { rows = JSON.parse(direct.text); } catch { rows = null; }
+    const leaked = Array.isArray(rows) && rows.length > 0;
+    results.push({ attackId: 'anon_direct_data_api_read',
+      expected: '공개(anon) 키로 메모 표를 직접 읽으면 거절되거나 0건',
+      observed: leaked ? `거절되지 않음 (HTTP ${direct.status}, ${rows.length}건 보임)`
+        : `메모 0건 (HTTP ${direct.status})` });
+  } else {
+    results.push({ attackId: 'anon_direct_data_api_read',
+      expected: '공개(anon) 키로 메모 표를 직접 읽으면 거절되거나 0건',
+      observed: '미실행: SUPABASE_PUBLISHABLE_KEY 환경변수를 주지 않아 보내지 않음' });
+  }
+
+  // 8) A/B 교차 접근(B가 A 메모 읽기·수정·삭제, 소유자 변경)은 두 계정의 실제 토큰이 필요해 여기서 보내지 않습니다.
+  results.push({ attackId: 'cross_owner_note_access',
+    expected: 'B가 A 메모를 읽기·수정·삭제하거나 소유자를 바꾸면 거절, 각자 자기 메모는 허용',
+    observed: '미실행: 두 계정의 실제 로그인 토큰이 필요해 자동 점검에서 보내지 않음. 배포 화면과 test/r5.test.mjs로 확인' });
   return results;
 }
