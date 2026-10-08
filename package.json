@@ -8,7 +8,10 @@
     "bundle": "node scripts/bundle.mjs",
     "decider:test": "node scripts/decider-test.mjs",
     "detect:test": "node scripts/detect-test.mjs",
-    "fixture:7": "node scripts/fixture-7.mjs"
+    "fixture:7": "node scripts/fixture-7.mjs",
+    "xdr:run": "node scripts/xdr-run.mjs",
+    "xdr:link": "node xdr/brute-force/ztna-link.mjs",
+    "xdr:test": "node --test test/xdr-run.test.mjs"
   },
   "engines": {
     "node": ">=22"

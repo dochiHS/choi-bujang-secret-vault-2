@@ -26,7 +26,7 @@
 | 2단계 | 통과 | 메모를 정적 파일·코드에서 빼고 학습용 Supabase 테이블과 서버 함수 `/api/notes`로 옮김. 재제출로 보안 헤더(`X-Content-Type-Options: nosniff`) 추가 |
 | 3단계 | 통과 | Supabase Auth 이메일·비밀번호 로그인·로그아웃, 서버의 토큰 검사(`src/verify-login.mjs`), 로그인 사용자의 가상 메모 추가·수정·삭제 |
 | 4단계 | 통과 | API가 검증된 사용자 ID와 메모 `owner_id`를 비교(남의 메모 404, 소유자 변경 403), 메모 표에 RLS 자기 행 정책과 최소 권한 |
-| 5단계 | 이 커밋 | 브라우저는 우리 서버 함수만 부름(로그인도 `/api/auth/*`로 이동, 화면에 Supabase 키·SDK 없음), 메모 표의 PUBLIC·anon·authenticated 직접 권한 회수, `originalApiUrl` 기록 |
+| 5단계 | 통과 | 브라우저는 우리 서버 함수만 부름(로그인도 `/api/auth/*`로 이동, 화면에 Supabase 키·SDK 없음), 메모 표의 PUBLIC·anon·authenticated 직접 권한 회수, `originalApiUrl` 기록 |
 
 ## 5단계: 자료 요청을 서버 한곳으로
 
@@ -123,3 +123,26 @@
 [AGENTS.md](AGENTS.md)를 먼저 읽히고 한 번에 한 제작 단위만 요청하세요. 2단계부터는 자료 보호를 구현할 때 `public/data.json`을 복사하는 1단계 빌드 흐름도 함께 바꿔야 합니다. 3단계 이후의 로그인, 허용 경로, 5단계의 원본 API 주소, 6단계 이후 정책 규칙은 해당 단계 원고와 계약에 맞춰 추가합니다. 비밀번호·토큰·서버 전용 키·실제 학생 기록을 코드, Git, 제출 묶음에 넣지 않습니다.
 
 `src/decider.mjs`와 `src/detect.mjs`의 로컬 시험은 반 엔진이나 운영 심판의 결과가 아닙니다. 1단계 이후 제출 묶음 계약 `aleph.defense.submission.v2`는 `scripts/bundle.mjs`에 남아 있으며, 코딩 도구가 해당 단계의 최신 배포 주소와 Git 원격을 맞춘 뒤 사용합니다.
+
+## 보너스 XDR-01: 무차별 로그인 공격을 잡아 냅니다
+
+공식 경보 묶음(`xdr/fixtures/*`, `scripts/xdr-run.mjs`, `test/xdr-run.test.mjs`)은 원본 시작 틀 `main`에서 그대로 가져왔고 고치지 않았습니다.
+
+| 파일 | 하는 일 |
+| --- | --- |
+| `xdr/brute-force/read-alerts.mjs` | 경보에서 시각·출발 주소·계정·규칙 수준·설명만 뽑음. 비밀값처럼 보이는 값은 `[가림]` |
+| `xdr/brute-force/patterns.json` | MITRE ATT&CK T1110 근거 패턴 3개(T1110.001 반복 대입, T1110.003 계정 대입, 적은 실패) |
+| `xdr/brute-force/decide.mjs` | `decide(alert)` → `{action, confidence, reason}`. 0.85↑ block · 0.5↑ alert · 그 아래 record. 애매한 경보만 Jev(`XDR_JEV_URL`)에 묻고, 응답이 없으면 alert |
+| `xdr/brute-force/ztna-link.mjs` | block 경보 주소만 `deny-rules.json`의 XDR 거부 규칙으로(만료 60분·근거 경보 번호). alert는 `xdr/alerts.log`에 한 줄씩. 판정기 앞 확인 단계 `xdrPreCheck()` 제공 |
+
+`src/decider.mjs`의 기존 규칙은 고치지 않았습니다. 판정기 요청 계약(`docs/DECIDER_REQUEST.md`)에는 출발 주소가 없어서, XDR 거부 규칙은 판정기 앞에서 주소로 한 번 더 확인하는 별도 부품으로 둡니다.
+
+다시 실행하기:
+
+```
+npm run xdr:run -- brute-force   # result.json 생성
+npm run xdr:link                 # 거부 규칙·알림 로그·다시 흘려 보기
+npm run xdr:test                 # 공식 경보 묶음 검사
+```
+
+최근 실행: block 10 · alert 9 · record 9, 정상 이벤트 차단 0건, 다시 흘린 경보 28건 중 어긋남 0건(로컬 자기 점검이며 심판 판정이 아님).
