@@ -7,3 +7,12 @@
 2026-09-27T13:02:16+09:00	brute-force	bf-17	192.0.2.52	user06	confidence=0.6	T1110-low-volume-failures: 실패 4건, Jev 응답 없음
 2026-09-27T14:05:27+09:00	brute-force	bf-18	198.51.100.52	user07	confidence=0.6	T1110-low-volume-failures: 실패 8건, Jev 응답 없음
 2026-09-27T15:12:09+09:00	brute-force	bf-19	203.0.113.52	user08	confidence=0.6	T1110-low-volume-failures: 실패 3건, Jev 응답 없음
+2026-09-27T09:22:14+09:00	web-injection	wi-09	192.0.2.40		confidence=0.6	T1190-single-suspicious-input: 1번, Jev 응답 없음
+2026-09-27T09:36:40+09:00	web-injection	wi-10	198.51.100.40		confidence=0.6	T1190-single-suspicious-input: 1번, Jev 응답 없음
+2026-09-27T10:11:06+09:00	web-injection	wi-11	203.0.113.41		confidence=0.6	T1190-single-suspicious-input: 1번, Jev 응답 없음
+2026-09-27T10:44:18+09:00	web-injection	wi-12	192.0.2.41		confidence=0.6	T1190-single-suspicious-input: 1번, Jev 응답 없음
+2026-09-27T11:20:09+09:00	web-injection	wi-13	198.51.100.41		confidence=0.6	T1190-single-suspicious-input: 1번, Jev 응답 없음
+2026-09-27T12:08:27+09:00	web-injection	wi-14	203.0.113.42		confidence=0.6	T1190-single-suspicious-input: 1번, Jev 응답 없음
+2026-09-27T13:15:03+09:00	web-injection	wi-15	192.0.2.42		confidence=0.6	T1190-single-suspicious-input: 1번, Jev 응답 없음
+2026-09-27T14:09:50+09:00	web-injection	wi-16	198.51.100.42		confidence=0.6	T1190-single-suspicious-input: 1번, Jev 응답 없음
+2026-09-27T15:18:12+09:00	web-injection	wi-17	203.0.113.43		confidence=0.6	T1190-single-suspicious-input: 1번, Jev 응답 없음
