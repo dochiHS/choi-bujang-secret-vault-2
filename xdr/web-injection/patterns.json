@@ -1,0 +1,32 @@
+{
+  "schema": "aleph.xdr.patterns.v1",
+  "moduleKey": "web-injection",
+  "source": "MITRE ATT&CK T1190 Exploit Public-Facing Application (https://attack.mitre.org/techniques/T1190/)",
+  "patterns": [
+    {
+      "name": "T1190-sql-injection-repeat",
+      "condition": "요청 인자 안에 SQL 구문을 이어 붙인 표기가 같은 주소에서 8번 이상 반복",
+      "basis": "T1190: 공개된 웹 앱의 입력 칸에 SQL 주입을 넣어 데이터베이스를 조작하는 형태"
+    },
+    {
+      "name": "T1190-script-injection-repeat",
+      "condition": "요청 인자 안에 스크립트 태그(삽입 표식)가 같은 주소에서 8번 이상 반복(SQL 표식과 섞인 경우 포함)",
+      "basis": "T1190: 공개된 웹 앱의 입력을 통해 스크립트를 심어 사용자 화면에서 실행시키는 형태"
+    },
+    {
+      "name": "T1190-path-traversal-repeat",
+      "condition": "경로를 여러 단계 거슬러 올라가는 표기(../)가 같은 주소에서 8번 이상 반복",
+      "basis": "T1190: 공개된 웹 앱의 파일 경로 인자를 조작해 허용 밖 파일을 읽는 형태"
+    },
+    {
+      "name": "T1190-command-separator-repeat",
+      "condition": "요청 인자 안에 명령 구분자 표기가 같은 주소에서 8번 이상 반복",
+      "basis": "T1190: 공개된 웹 앱의 입력을 서버 명령에 이어 붙여 실행시키는 형태"
+    },
+    {
+      "name": "T1190-single-suspicious-input",
+      "condition": "T1190 태그가 붙었지만 의심 표기가 1~2번뿐이거나 수업 단어(select, script, SQL)와 겹침",
+      "basis": "T1190 Detection: 한 번뿐인 의심 입력은 정상 검색어와 구분이 어려워 사람이 확인해야 함"
+    }
+  ]
+}
