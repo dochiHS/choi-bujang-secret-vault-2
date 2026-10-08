@@ -146,3 +146,14 @@ npm run xdr:test                 # 공식 경보 묶음 검사
 ```
 
 최근 실행: block 10 · alert 9 · record 9, 정상 이벤트 차단 0건, 다시 흘린 경보 28건 중 어긋남 0건(로컬 자기 점검이며 심판 판정이 아님).
+
+## 보너스 XDR-02: 웹 주입 공격을 잡아 냅니다
+
+XDR-01과 같은 구조입니다(`xdr/web-injection/`). 근거는 MITRE ATT&CK T1190이고, 패턴은 SQL 주입·스크립트 주입·경로 거슬러 올라가기·명령 구분자 반복과 한 번뿐인 의심 입력 5개입니다. 같은 주소에서 주입 표기가 8번 이상 반복된 경보만 block, 한 번뿐인 의심 입력은 Jev에 묻고 응답이 없으면 alert, 태그 없는 정상 요청은 record입니다. `decide.mjs`는 다른 파일을 import하지 않아 단독으로 실행됩니다.
+
+```
+npm run xdr:run -- web-injection
+node xdr/web-injection/ztna-link.mjs
+```
+
+최근 실행: block 8 · alert 9 · record 9, 정상 이벤트 차단 0건, 다시 흘린 경보 26건 중 어긋남 0건(로컬 자기 점검이며 심판 판정이 아님).
