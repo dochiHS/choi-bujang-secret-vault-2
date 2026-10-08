@@ -28,7 +28,7 @@
         "srcip": "198.51.100.20"
       },
       "sourceAlertId": "bf-03",
-      "reason": "T1110.001-password-guessing-burst: 실패 36건",
+      "reason": "T1110.003-password-spraying: 계정 여러개 대입",
       "createdAt": "2026-09-27T00:14:02.000Z",
       "expiresAt": "2026-09-27T01:14:02.000Z"
     },
@@ -48,7 +48,7 @@
         "srcip": "203.0.113.21"
       },
       "sourceAlertId": "bf-05",
-      "reason": "T1110.001-password-guessing-burst: 실패 20건",
+      "reason": "T1110.003-password-spraying: 계정 20개 대입",
       "createdAt": "2026-09-27T00:21:00.000Z",
       "expiresAt": "2026-09-27T01:21:00.000Z"
     },
@@ -88,7 +88,7 @@
         "srcip": "198.51.100.8"
       },
       "sourceAlertId": "bf-09",
-      "reason": "T1110.001-password-guessing-burst: 실패 15건",
+      "reason": "T1110.003-password-spraying: 계정 15개 대입",
       "createdAt": "2026-09-27T05:22:18.000Z",
       "expiresAt": "2026-09-27T06:22:18.000Z"
     },

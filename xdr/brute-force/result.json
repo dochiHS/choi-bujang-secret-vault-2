@@ -17,8 +17,8 @@
     {
       "alertId": "bf-03",
       "action": "block",
-      "confidence": 0.92,
-      "reason": "T1110.001-password-guessing-burst: 실패 36건"
+      "confidence": 0.95,
+      "reason": "T1110.003-password-spraying: 계정 여러개 대입"
     },
     {
       "alertId": "bf-04",
@@ -29,8 +29,8 @@
     {
       "alertId": "bf-05",
       "action": "block",
-      "confidence": 0.9,
-      "reason": "T1110.001-password-guessing-burst: 실패 20건"
+      "confidence": 0.95,
+      "reason": "T1110.003-password-spraying: 계정 20개 대입"
     },
     {
       "alertId": "bf-06",
@@ -53,8 +53,8 @@
     {
       "alertId": "bf-09",
       "action": "block",
-      "confidence": 0.9,
-      "reason": "T1110.001-password-guessing-burst: 실패 15건"
+      "confidence": 0.95,
+      "reason": "T1110.003-password-spraying: 계정 15개 대입"
     },
     {
       "alertId": "bf-10",
