@@ -1,0 +1,9 @@
+2026-09-27T09:30:12+09:00	brute-force	bf-11	192.0.2.50	user01	confidence=0.6	T1110-low-volume-failures: 실패 4건, Jev 응답 없음
+2026-09-27T09:41:05+09:00	brute-force	bf-12	198.51.100.50	user02	confidence=0.6	T1110-low-volume-failures: 실패 6건, Jev 응답 없음
+2026-09-27T10:02:20+09:00	brute-force	bf-13	203.0.113.50	user03	confidence=0.6	T1110-low-volume-failures: 실패 3건, Jev 응답 없음
+2026-09-27T10:15:08+09:00	brute-force	bf-14	192.0.2.51	user04	confidence=0.6	T1110-low-volume-failures: 실패 5건, Jev 응답 없음
+2026-09-27T10:28:44+09:00	brute-force	bf-15	198.51.100.51	user05	confidence=0.6	T1110-low-volume-failures: 실패 4건, Jev 응답 없음
+2026-09-27T11:18:03+09:00	brute-force	bf-16	203.0.113.51	user05	confidence=0.6	T1110-low-volume-failures: 실패 3건, Jev 응답 없음
+2026-09-27T13:02:16+09:00	brute-force	bf-17	192.0.2.52	user06	confidence=0.6	T1110-low-volume-failures: 실패 4건, Jev 응답 없음
+2026-09-27T14:05:27+09:00	brute-force	bf-18	198.51.100.52	user07	confidence=0.6	T1110-low-volume-failures: 실패 8건, Jev 응답 없음
+2026-09-27T15:12:09+09:00	brute-force	bf-19	203.0.113.52	user08	confidence=0.6	T1110-low-volume-failures: 실패 3건, Jev 응답 없음
