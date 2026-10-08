@@ -1,0 +1,106 @@
+{
+  "schema": "aleph.xdr.deny-rules.v1",
+  "moduleKey": "brute-force",
+  "rules": [
+    {
+      "ruleId": "xdr.brute_force.deny",
+      "match": {
+        "srcip": "203.0.113.10"
+      },
+      "sourceAlertId": "bf-01",
+      "reason": "T1110.001-password-guessing-burst: 실패 48건",
+      "createdAt": "2026-09-27T00:12:01.000Z",
+      "expiresAt": "2026-09-27T01:12:01.000Z"
+    },
+    {
+      "ruleId": "xdr.brute_force.deny",
+      "match": {
+        "srcip": "203.0.113.10"
+      },
+      "sourceAlertId": "bf-02",
+      "reason": "T1110.003-password-spraying: 계정 8개 대입",
+      "createdAt": "2026-09-27T00:12:40.000Z",
+      "expiresAt": "2026-09-27T01:12:40.000Z"
+    },
+    {
+      "ruleId": "xdr.brute_force.deny",
+      "match": {
+        "srcip": "198.51.100.20"
+      },
+      "sourceAlertId": "bf-03",
+      "reason": "T1110.001-password-guessing-burst: 실패 36건",
+      "createdAt": "2026-09-27T00:14:02.000Z",
+      "expiresAt": "2026-09-27T01:14:02.000Z"
+    },
+    {
+      "ruleId": "xdr.brute_force.deny",
+      "match": {
+        "srcip": "192.0.2.30"
+      },
+      "sourceAlertId": "bf-04",
+      "reason": "T1110.001-password-guessing-burst: 실패 52건",
+      "createdAt": "2026-09-27T00:20:11.000Z",
+      "expiresAt": "2026-09-27T01:20:11.000Z"
+    },
+    {
+      "ruleId": "xdr.brute_force.deny",
+      "match": {
+        "srcip": "203.0.113.21"
+      },
+      "sourceAlertId": "bf-05",
+      "reason": "T1110.001-password-guessing-burst: 실패 20건",
+      "createdAt": "2026-09-27T00:21:00.000Z",
+      "expiresAt": "2026-09-27T01:21:00.000Z"
+    },
+    {
+      "ruleId": "xdr.brute_force.deny",
+      "match": {
+        "srcip": "198.51.100.44"
+      },
+      "sourceAlertId": "bf-06",
+      "reason": "T1110.001-password-guessing-burst: 실패 61건",
+      "createdAt": "2026-09-27T02:02:15.000Z",
+      "expiresAt": "2026-09-27T03:02:15.000Z"
+    },
+    {
+      "ruleId": "xdr.brute_force.deny",
+      "match": {
+        "srcip": "203.0.113.15"
+      },
+      "sourceAlertId": "bf-07",
+      "reason": "T1110.001-password-guessing-burst: 실패 40건",
+      "createdAt": "2026-09-27T02:05:40.000Z",
+      "expiresAt": "2026-09-27T03:05:40.000Z"
+    },
+    {
+      "ruleId": "xdr.brute_force.deny",
+      "match": {
+        "srcip": "192.0.2.18"
+      },
+      "sourceAlertId": "bf-08",
+      "reason": "T1110.001-password-guessing-burst: 실패 70건",
+      "createdAt": "2026-09-27T04:10:02.000Z",
+      "expiresAt": "2026-09-27T05:10:02.000Z"
+    },
+    {
+      "ruleId": "xdr.brute_force.deny",
+      "match": {
+        "srcip": "198.51.100.8"
+      },
+      "sourceAlertId": "bf-09",
+      "reason": "T1110.001-password-guessing-burst: 실패 15건",
+      "createdAt": "2026-09-27T05:22:18.000Z",
+      "expiresAt": "2026-09-27T06:22:18.000Z"
+    },
+    {
+      "ruleId": "xdr.brute_force.deny",
+      "match": {
+        "srcip": "203.0.113.40"
+      },
+      "sourceAlertId": "bf-10",
+      "reason": "T1110.001-password-guessing-burst: 실패 90건",
+      "createdAt": "2026-09-27T06:40:01.000Z",
+      "expiresAt": "2026-09-27T07:40:01.000Z"
+    }
+  ]
+}
