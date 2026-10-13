@@ -42,11 +42,11 @@ const ZONE_ROUTES = Object.freeze({
   'GET /notes/:id': 'note',        // 내 메모 한 건 읽기
   'PUT /notes/:id': 'note',        // 내 메모 수정
   'DELETE /notes/:id': 'note',     // 내 메모 삭제
+  'GET /notices': 'notice',        // 강사 공지 목록 읽기
+  'GET /notices/:id': 'notice',    // 강사 공지 한 건 읽기
 });
-// 강사 공지 구역: 계약에 강사 역할 값이 없어 판정기는 공지 읽기·추가·수정·삭제를 모두 거부합니다.
-// 공지 읽기는 로그인이 필요한 자료 API가 따로 처리합니다.
-const INSTRUCTOR_ONLY = Object.freeze(['GET /notices', 'GET /notices/:id', 'POST /notices',
-  'PUT /notices/:id', 'DELETE /notices/:id']);
+// 강사 공지 수정·추가·삭제: 계약에 강사 역할이 생기기 전까지 모두 거부
+const INSTRUCTOR_ONLY = Object.freeze(['POST /notices', 'PUT /notices/:id', 'DELETE /notices/:id']);
 // :id 자리에 오면 안 되는 기능 이름(자료 ID 자리에 기능을 숨기는 시도)
 const FUNCTION_WORDS = new Set(['export', 'import', 'download', 'backup', 'restore', 'all', 'bulk',
   'admin', 'search', 'list', 'raw', 'dump', 'share', 'copy', 'owner', 'role', 'notices', 'notes']);
@@ -58,21 +58,6 @@ const escapeRegExp = value => value.replace(/[.*+?^${}()|[\]\\]/gu, '\\$&');
 
 // :id가 요청자가 아닌 다른 주체를 가리키는지. 주체 ID 앞머리(예: learner_)와 같은 형식인데
 // 요청자 본인 ID가 아니면 다른 사용자의 자료로 봅니다.
-// 8단계 정확한 자원 경로 규칙: 엔진이 확인한 사용자·기기·메서드·정확한 경로가 모두 맞는 조합만 허용합니다.
-// 자료실 주인(가명 주체+등록 기기)과 그 주인의 메모 경로를 하나씩 적습니다.
-// (값은 시작 틀 연습 요청 scripts/fixture-7.mjs의 가명 주체·기기·메모 경로입니다. 실제 값·비밀값이 아닙니다.)
-const NOTE_GRANTS = Object.freeze([
-  { subjectId: 'learner_fixture', deviceId: 'a'.repeat(16), method: 'GET', path: '/notes' },
-  { subjectId: 'learner_fixture', deviceId: 'a'.repeat(16), method: 'POST', path: '/notes' },
-  { subjectId: 'learner_fixture', deviceId: 'a'.repeat(16), method: 'GET', path: '/notes/demo' },
-  { subjectId: 'learner_fixture', deviceId: 'a'.repeat(16), method: 'PUT', path: '/notes/demo' },
-  { subjectId: 'learner_fixture', deviceId: 'a'.repeat(16), method: 'DELETE', path: '/notes/demo' },
-]);
-function granted(request, path) {
-  return NOTE_GRANTS.some(g => g.subjectId === request.subjectId && g.deviceId === request.deviceId
-    && g.method === request.method && g.path === path);
-}
-
 function pointsToOtherSubject(id, subjectId) {
   if (id === subjectId || id.startsWith(`${subjectId}_`) || id.startsWith(`${subjectId}-`)) return false;
   if (id.includes(subjectId)) return false;
@@ -119,8 +104,6 @@ function zoneCheck(request) {
       return 'route_not_allowed';
     }
   }
-  // 메모 구역: 사용자·기기·메서드·정확한 경로가 모두 맞는 조합만
-  if (zone === 'note' && !granted(request, stripApi(request.path))) return 'not_own_resource';
   return null;
 }
 
