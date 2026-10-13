@@ -9,7 +9,13 @@
 // 7단계 step_up_required: 평소와 다른 접속(지역·시각·네트워크·최근 행동)이 보이면 거부 대신
 // 추가 본인 확인(step_up)을 요구합니다. 지역 하나만으로 영구 차단(deny)하지 않습니다.
 // 최근(STEP_UP_FRESH_SECONDS 이내)에 다시 확인을 마친 요청만 허용합니다.
-export const RULE_IDS = Object.freeze(['device_registered', 'step_up_required']);
+//
+// 8단계 resource_zone: 엔진이 확인한 메서드·경로 모양(route)·실제 경로(path)가 아래 구역표와
+// 정확히 맞을 때만 다음 검사로 넘어갑니다. 표에 없는 경로, 쿼리로 기능을 고르는 요청,
+// :id 자리에 export 같은 기능 이름을 넣은 요청은 거부합니다(기본 거부).
+// 강사 공지 수정은 계약에 강사 역할 값이 없으므로(docs/DECIDER_REQUEST.md) 누구에게도 허용하지 않습니다.
+// 메모 소유자 대조(B가 A 메모)는 판정 요청에 소유자 값이 없어 자료 API가 맡습니다(api/_notes-lib.js).
+export const RULE_IDS = Object.freeze(['device_registered', 'step_up_required', 'resource_zone']);
 
 const DEVICE_ID = /^[0-9a-f]{16}$/u;
 
@@ -25,13 +31,60 @@ const BURST_COUNT = 10;                           // 10분 안에 10번 이상�
 const RISK_KIND = /risk|bulk|mass|burst|anomal|unusual|fail/iu;
 const STEP_UP_FRESH_SECONDS = 300;                // 다시 확인한 지 5분 이내만 인정
 
+// 구역표: "메서드 경로모양" → 구역. 판정기는 여기 있는 것만 통과시킵니다.
+const ZONE_ROUTES = Object.freeze({
+  'GET /notes': 'note',            // 내 메모 목록(소유자 조건은 API)
+  'POST /notes': 'note',           // 내 메모 추가(소유자는 API가 검증한 사용자로 저장)
+  'GET /notes/:id': 'note',        // 내 메모 한 건 읽기
+  'PUT /notes/:id': 'note',        // 내 메모 수정
+  'DELETE /notes/:id': 'note',     // 내 메모 삭제
+  'GET /notices': 'notice',        // 강사 공지 목록 읽기
+  'GET /notices/:id': 'notice',    // 강사 공지 한 건 읽기
+});
+// 강사 공지 수정·추가·삭제: 계약에 강사 역할이 생기기 전까지 모두 거부
+const INSTRUCTOR_ONLY = Object.freeze(['POST /notices', 'PUT /notices/:id', 'DELETE /notices/:id']);
+// :id 자리에 오면 안 되는 기능 이름(자료 ID 자리에 기능을 숨기는 시도)
+const FUNCTION_WORDS = new Set(['export', 'import', 'download', 'backup', 'restore', 'all', 'bulk',
+  'admin', 'search', 'list', 'raw', 'dump', 'share', 'copy', 'owner', 'role', 'notices', 'notes']);
+const ID_SEGMENT = /^[A-Za-z0-9_-]{1,64}$/u;
+
+// "/api/notes/..."와 "/notes/..."를 같은 모양으로 봅니다.
+const stripApi = value => value.replace(/^\/api(?=\/)/u, '');
+
+function zoneCheck(request) {
+  if (typeof request.method !== 'string' || typeof request.route !== 'string'
+      || typeof request.path !== 'string') return 'route_not_allowed';
+  const [routeMethod, routeShape, ...extra] = request.route.trim().split(/\s+/u);
+  if (extra.length || routeMethod !== request.method || !routeShape) return 'route_not_allowed';
+  const shape = stripApi(routeShape);
+  const key = `${routeMethod} ${shape}`;
+  if (INSTRUCTOR_ONLY.includes(key)) return 'zone_forbidden';
+  if (!Object.hasOwn(ZONE_ROUTES, key)) return 'route_not_allowed';
+  // 쿼리로 기능을 고르지 않습니다: 쿼리 문자열이 있으면 거부
+  if (request.queryLength !== 0) return 'query_not_allowed';
+  // 실제 경로가 경로 모양과 정확히 같은 깊이·같은 글자인지
+  const pathParts = stripApi(request.path).split('/');
+  const shapeParts = shape.split('/');
+  if (pathParts.length !== shapeParts.length) return 'route_not_allowed';
+  for (let i = 0; i < shapeParts.length; i += 1) {
+    if (shapeParts[i] === ':id') {
+      if (!ID_SEGMENT.test(pathParts[i]) || FUNCTION_WORDS.has(pathParts[i].toLowerCase())) {
+        return 'route_not_allowed';
+      }
+    } else if (pathParts[i] !== shapeParts[i]) {
+      return 'route_not_allowed';
+    }
+  }
+  return null;
+}
+
 function respond(request, decision, reasonCode, ruleId) {
   return {
     schema: 'aleph.decision.v1',
     requestId: request && typeof request === 'object' ? request.requestId : undefined,
     decision,
     reasonCode,
-    ruleIds: [ruleId],
+    ruleIds: Array.isArray(ruleId) ? [...ruleId] : [ruleId],
   };
 }
 
@@ -88,10 +141,17 @@ export async function decide(request) {
     && typeof request.deviceId === 'string' && DEVICE_ID.test(request.deviceId);
   if (!registered) return respond(request, 'deny', 'device_not_registered', 'device_registered');
 
+  // 8단계: 구역표에 맞는 메서드·경로만
+  const zoneProblem = zoneCheck(request);
+  if (zoneProblem) return respond(request, 'deny', zoneProblem, 'resource_zone');
+
   // 7단계: 평소와 다른 접속은 다시 확인
   const anomalies = [...signalAnomalies(request.signals), ...eventAnomalies(request.recentEvents)];
   if (anomalies.length > 0 && !freshStepUp(request.stepUp)) {
     return respond(request, 'step_up', 'step_up_required', 'step_up_required');
   }
-  return respond(request, 'allow', 'approved', anomalies.length > 0 ? 'step_up_required' : 'device_registered');
+  // 허용: 통과한 규칙 이름을 모두 적습니다.
+  return respond(request, 'allow', 'approved', anomalies.length > 0
+    ? ['device_registered', 'resource_zone', 'step_up_required']
+    : ['device_registered', 'resource_zone']);
 }

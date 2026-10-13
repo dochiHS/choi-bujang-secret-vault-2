@@ -186,6 +186,21 @@ export async function runAttackChecks(config) {
           observed: `로컬 판정기 응답: ${response?.decision} · ${response?.reasonCode} · ${JSON.stringify(response?.ruleIds)}` });
       }
     }
+
+    // 19~20) 8단계: 구역 규칙(로컬 실행, 심판 판정 아님). 소유자·강사 대조는 API 시험(test/r8.test.mjs)에서 확인
+    if (config.step >= 8) {
+      const zoneCases = [
+        ['decider_student_notice_edit', '학생의 강사 공지 수정(PUT /notices/:id)은 deny · zone_forbidden',
+          { method: 'PUT', route: 'PUT /notices/:id', path: '/notices/demo' }],
+        ['decider_function_path_in_id', ':id 자리에 기능 이름(/notes/export)은 deny · route_not_allowed',
+          { method: 'GET', route: 'GET /notes/:id', path: '/notes/export' }],
+      ];
+      for (const [attackId, expected, change] of zoneCases) {
+        const response = await decide({ ...base, ...change, requestId: randomUUID() });
+        results.push({ attackId, expected,
+          observed: `로컬 판정기 응답: ${response?.decision} · ${response?.reasonCode} · ${JSON.stringify(response?.ruleIds)}` });
+      }
+    }
   }
   return results;
 }
