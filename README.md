@@ -27,6 +27,25 @@
 | 3단계 | 통과 | Supabase Auth 이메일·비밀번호 로그인·로그아웃, 서버의 토큰 검사(`src/verify-login.mjs`), 로그인 사용자의 가상 메모 추가·수정·삭제 |
 | 4단계 | 통과 | API가 검증된 사용자 ID와 메모 `owner_id`를 비교(남의 메모 404, 소유자 변경 403), 메모 표에 RLS 자기 행 정책과 최소 권한 |
 | 5단계 | 통과 | 브라우저는 우리 서버 함수만 부름(로그인도 `/api/auth/*`로 이동, 화면에 Supabase 키·SDK 없음), 메모 표의 PUBLIC·anon·authenticated 직접 권한 회수, `originalApiUrl` 기록 |
+| 6단계 | 제출 | 판정기 `src/decider.mjs`에 `device_registered` 규칙: 엔진이 확인한 `deviceRegistered`가 정확히 `true`이고 `deviceId`가 16자리 소문자 16진수일 때만 `allow`, 그 밖에는 `deny`·`device_not_registered` |
+
+## 6단계: 등록한 기기만 자료실에 들어옵니다
+
+- 제작 1 점검: 판정 요청(`docs/DECIDER_REQUEST.md`, `aleph.decision.v1`)에서 사용자는 `subjectId`(엔진이 만든 가명 주체 ID), 기기는 `deviceId`(16자리 소문자 16진수, 개인키 아님), 기기 등록 여부는 최상위 `deviceRegistered`(불리언)로 들어옵니다. 인증서·CA·서명 키는 새로 만들거나 Git에 넣지 않았습니다.
+- 제작 2: `src/decider.mjs`의 `RULE_IDS`를 `['device_registered']`로 바꾸고, `decide(request)`가 아래를 **모두** 만족할 때만 `allow`(`approved`)를 돌려줍니다. 하나라도 어긋나면 `deny`·`device_not_registered`(기본 거부).
+  - `schema`가 `aleph.decision.v1`
+  - `deviceRegistered === true` (값 없음·`false`·문자열 `"true"`·`1`은 모두 거부)
+  - `deviceId`가 계약 형식 `^[0-9a-f]{16}$`
+- 판정기는 로그인·기기 등록 여부·동작·경로만 판단하고, 브라우저가 보낸 사용자 번호·역할·기기 상태는 쓰지 않습니다. 계약에 없는 `request.device`·`request.identity`·`request.geo`·`request.role`도 쓰지 않습니다. 다른 파일을 import하지 않아 단독 실행됩니다.
+- 자료실 주소·화면·API(1~5단계)는 그대로입니다. 클라이언트 인증서(mTLS)와 사용자 토큰-기기 묶음은 반 엔진이 판정기보다 먼저 확인합니다. 판정기의 `allow`가 그 검사를 되돌리지 못합니다.
+- `src/attack-check.mjs`에 판정기 가상 요청 다섯 건(등록 기기 허용, 미등록·값 없음·문자열 true·형식 다른 기기 ID 거부)을 추가했습니다. 로컬 실행 결과이며 심판 판정이 아닙니다.
+
+### 6단계 확인 절차
+
+1. `npm run decider:test` → `통과 · 등록 기기의 정상 요청`, `통과 · 미등록 기기의 가상 요청`이 나옵니다(가상 요청 연습, 심판 판정 아님).
+2. 거부되어야 할 것: `deviceRegistered: false`, 값 없음, `"true"`, 형식이 다른 `deviceId` → 모두 `deny`·`device_not_registered`. `npm run bundle`의 직접 점검 `decider_*` 다섯 줄에서 응답을 볼 수 있습니다.
+3. 등록 기기에서 기존 화면: 배포 주소를 열면 1~5단계와 같은 로그인 화면과 내 메모가 그대로 보입니다.
+4. 미등록 기기 공격(가상 기기 사건 직접 입력 등)은 심판이 보냅니다. 따로 설치할 접속 프로그램은 없습니다.
 
 ## 5단계: 자료 요청을 서버 한곳으로
 
