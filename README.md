@@ -27,7 +27,24 @@
 | 3단계 | 통과 | Supabase Auth 이메일·비밀번호 로그인·로그아웃, 서버의 토큰 검사(`src/verify-login.mjs`), 로그인 사용자의 가상 메모 추가·수정·삭제 |
 | 4단계 | 통과 | API가 검증된 사용자 ID와 메모 `owner_id`를 비교(남의 메모 404, 소유자 변경 403), 메모 표에 RLS 자기 행 정책과 최소 권한 |
 | 5단계 | 통과 | 브라우저는 우리 서버 함수만 부름(로그인도 `/api/auth/*`로 이동, 화면에 Supabase 키·SDK 없음), 메모 표의 PUBLIC·anon·authenticated 직접 권한 회수, `originalApiUrl` 기록 |
-| 6단계 | 제출 | 판정기 `src/decider.mjs`에 `device_registered` 규칙: 엔진이 확인한 `deviceRegistered`가 정확히 `true`이고 `deviceId`가 16자리 소문자 16진수일 때만 `allow`, 그 밖에는 `deny`·`device_not_registered` |
+| 6단계 | 통과 | 판정기 `src/decider.mjs`에 `device_registered` 규칙: 엔진이 확인한 `deviceRegistered`가 정확히 `true`이고 `deviceId`가 16자리 소문자 16진수일 때만 `allow`, 그 밖에는 `deny`·`device_not_registered` |
+| 7단계 | 제출 | 판정기에 `step_up_required` 규칙: 믿을 수 있는 출처의 접속 정보에서 지역·시각·네트워크·최근 행동이 평소와 다르면 `step_up`, 5분 안에 다시 확인했으면 `allow`. 지역 하나로 영구 차단하지 않음 |
+
+## 7단계: 평소와 다른 접속은 다시 확인합니다
+
+- 제작 1(출처 구분): `signals.source`가 `none`이면 "정보 없음"으로 보고 정상·이상 어느 쪽으로도 채우지 않습니다(현재 실제 경로). `judge_fixture`는 심판·연습용 가상 사건으로 읽습니다. 그 밖의 출처(예: 클라이언트 헤더)는 믿지 않아 `region: local`처럼 정상값을 적어 와도 정상으로 승격되지 않고 추가 확인으로 갑니다. 출처는 믿을 만한데 지역·네트워크·시각 값이 없거나 형식이 틀리면 "확인 불가"로 보고 추가 확인으로 보냅니다.
+- 제작 2(규칙 `step_up_required`): 아래 중 하나라도 있으면 `step_up`·`step_up_required`입니다. 거부(`deny`)가 아니라 다시 본인 확인이라 정상 사용자를 영구 차단하지 않습니다.
+  - 지역이 평소(`local`)와 다름 / 네트워크가 평소(`usual`)와 다름 / 시각이 06~22시 밖
+  - 최근 10분 사건 중 위험 종류(`risk`·`bulk`·`mass`·`burst`·`anomal`·`unusual`·`fail`)가 있거나 횟수 합이 10 이상
+- 다시 확인: `stepUp.verified === true`이고 `authAgeSeconds`가 0~300초 정수일 때만 이상 신호가 있어도 `allow`합니다. 확인하지 않았거나(`false`), 오래됐거나(301초 이상), 값이 이상하면 다시 `step_up`입니다.
+- 6단계 `device_registered`는 그대로 먼저 검사합니다(미등록 기기는 이상 신호와 상관없이 `deny`).
+- 제작 3: 계약(`docs/DECIDER_REQUEST.md`)에는 엔진이 확인한 다시 로그인 나이 `stepUp.authAgeSeconds`가 있어 판정기는 이 값으로 다시 판정합니다. 실제 재로그인 화면과 확인 전 자료 차단은 제공 엔진이 새 로그인 시각을 검증하는 환경에서만 시험할 수 있어 **미실행**입니다. 토큰 원문은 기록하지 않습니다.
+
+### 7단계 확인 절차
+
+1. `npm run decider:test` → 네 줄 모두 `통과`(등록 기기 정상, 미등록 기기, 복합 이상 접속, 다시 확인한 복합 이상 접속). `npm run fixture:7` → `정상 사건: allow`, `복합 이상 사건: step_up`. 둘 다 가상 요청 연습이며 심판 판정이 아닙니다.
+2. 거부·추가 확인되어야 할 것: 지역만 급변, 새벽 3시, 낯선 네트워크+대량 수정, 다시 확인 안 한 토큰, 800초 전 재확인, 클라이언트 헤더 출처 → 모두 `step_up`. `npm run bundle`의 직접 점검 `decider_*` 줄에서 응답을 볼 수 있습니다.
+3. 등록 기기의 평소 접속과 실제 경로(`source: none`)는 `allow`라 배포 화면은 1~6단계와 같습니다.
 
 ## 6단계: 등록한 기기만 자료실에 들어옵니다
 
