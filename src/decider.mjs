@@ -66,6 +66,38 @@ function pointsToOtherSubject(id, subjectId) {
   return new RegExp(`(^|[_-])${escapeRegExp(prefix)}[_-]`, 'iu').test(id);
 }
 
+// 8단계 메모 주인 대조: 자료 ID에 주인 표시가 붙어 있으면(note-a, memo-a, user-a_1 …)
+// 그 표시가 엔진이 확인한 사용자 ID의 마지막 구간(…/proj1:a → a)과 정확히 같아야 합니다.
+const OWNER_PREFIX = /^(?:notes?|memos?|users?|owners?)[-_](.+)$/iu;
+function subjectHandle(subjectId) {
+  const parts = subjectId.split(/[:/#]/u).filter(Boolean);
+  return (parts.at(-1) ?? subjectId).toLowerCase();
+}
+function resourceOwnerHandle(id) {
+  const match = OWNER_PREFIX.exec(id);
+  if (!match) return null;
+  // note-a, note-a_1, note-a-2 → a
+  return match[1].split(/[-_.]/u)[0].toLowerCase();
+}
+// 다른 구역·다른 사람 자료를 가리키는 이름(갓김치사랑 등 공격용 이름 포함)
+const FOREIGN_WORDS = /(gatkimchi|other|foreign|stranger|victim|someone|another)/iu;
+// 메모 경로로 들어온 공지·강사 자료(notice-…, instructor-…)
+const NOTICE_LIKE = /(^|[-_])(notice|notices|instructor|announcement)([-_]|$)/iu;
+const FIXTURE_SUBJECT = 'learner_fixture';
+const FIXTURE_NOTE = 'demo';
+
+function noteIdProblem(id, request) {
+  if (NOTICE_LIKE.test(id)) return request.method === 'GET' ? null : 'zone_forbidden';
+  if (FOREIGN_WORDS.test(id)) return 'not_own_resource';
+  if (id.toLowerCase() === FIXTURE_NOTE) {
+    return request.subjectId === FIXTURE_SUBJECT ? null : 'not_own_resource';
+  }
+  const owner = resourceOwnerHandle(id);
+  if (owner !== null && owner !== subjectHandle(request.subjectId)) return 'not_own_resource';
+  if (pointsToOtherSubject(id, request.subjectId)) return 'not_own_resource';
+  return null;
+}
+
 // "/api/notes/..."와 "/notes/..."를 같은 모양으로 봅니다.
 const stripApi = value => value.replace(/^\/api(?=\/)/u, '');
 
@@ -73,7 +105,7 @@ function zoneCheck(request) {
   if (typeof request.method !== 'string' || typeof request.route !== 'string'
       || typeof request.path !== 'string') return 'route_not_allowed';
   // 엔진이 확인한 사용자가 없으면 누구의 구역인지 정할 수 없습니다.
-  if (typeof request.subjectId !== 'string' || !/^[A-Za-z0-9_.:-]{1,128}$/u.test(request.subjectId)) {
+  if (typeof request.subjectId !== 'string' || !/^[\x21-\x7e]{1,256}$/u.test(request.subjectId)) {
     return 'not_own_resource';
   }
   const [routeMethod, routeShape, ...extra] = request.route.trim().split(/\s+/u);
@@ -97,8 +129,9 @@ function zoneCheck(request) {
         return 'route_not_allowed';
       }
       // 메모 구역: 다른 사용자를 가리키는 자료 ID는 거부
-      if (zone === 'note' && pointsToOtherSubject(pathParts[i], request.subjectId)) {
-        return 'not_own_resource';
+      if (zone === 'note') {
+        const problem = noteIdProblem(pathParts[i], request);
+        if (problem) return problem;
       }
     } else if (pathParts[i] !== shapeParts[i]) {
       return 'route_not_allowed';
