@@ -1,5 +1,5 @@
 import { readFileSync } from 'node:fs';
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { createClient } from '@supabase/supabase-js';
 import { createLoginVerifier } from '../src/verify-login.mjs';
 
@@ -45,7 +45,8 @@ export function defaultDeps() {
   const db = createClient(url, key, {
     auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false },
   });
-  cached = { verify, notes: supabaseNotes(db), notices: supabaseNotices(db), newId: randomUUID };
+  cached = { verify, notes: supabaseNotes(db), notices: supabaseNotices(db),
+    backups: supabaseBackups(db), newId: randomUUID, now: () => new Date().toISOString() };
   return cached;
 }
 
@@ -84,11 +85,61 @@ export function supabaseNotes(db) {
       if (data.owner_id !== ownerId) throw new Error('owner_changed');
       return { id: data.id, title: data.title, body: data.body };
     },
+    // 10단계 복구용: 이 번호의 메모가 있는지와 그 소유자만 확인합니다(내용은 꺼내지 않음).
+    async ownerOf(id) {
+      const { data, error } = await table().select('id, owner_id').eq('id', id).maybeSingle();
+      if (error) throw error;
+      return data ? { exists: true, ownerId: data.owner_id } : { exists: false, ownerId: null };
+    },
+    // 10단계 복구용: 본인 메모면 사본 내용으로 되돌리고, 지워졌으면 같은 번호·소유자로 다시 만듭니다.
+    async restoreOwned({ id, ownerId, title, body, exists }) {
+      if (exists) {
+        const { data, error } = await table().update({ title, body })
+          .eq('id', id).eq('owner_id', ownerId).select(`${COLUMNS}, owner_id`).maybeSingle();
+        if (error) throw error;
+        return data && data.owner_id === ownerId ? { id: data.id, title: data.title, body: data.body } : null;
+      }
+      const { error } = await table().insert({ id, owner_id: ownerId, title, body });
+      if (error) throw error;
+      return { id, title, body };
+    },
     async removeOwned(id, ownerId) {
       const { data, error } = await table().delete()
         .eq('id', id).eq('owner_id', ownerId).select('id');
       if (error) throw error;
       return Array.isArray(data) && data.length > 0;
+    },
+  };
+}
+
+// 10단계: 메모 내용 지문(SHA-256). "제목 바이트 수:제목본문"을 UTF-8로 계산합니다(DB의 SQL과 같은 방식).
+export function noteHash(title, body) {
+  const t = String(title);
+  return createHash('sha256').update(`${Buffer.byteLength(t, 'utf8')}:${t}${String(body)}`, 'utf8').digest('hex');
+}
+
+// 10단계: 침해 전에 검증한 메모 사본(vault_note_backups)과 감사 기록(vault_audit_log).
+// 사본은 메모를 처음 만들 때 한 번 저장하며, 이후 수정(PUT)으로는 바뀌지 않습니다.
+// 감사 기록은 추가만 하고 고치거나 지우지 않습니다.
+export function supabaseBackups(db) {
+  const backups = () => db.from('vault_note_backups');
+  return {
+    async saveVerified({ id, ownerId, title, body }) {
+      const { error } = await backups().insert({ note_id: id, owner_id: ownerId, title, body,
+        content_sha256: noteHash(title, body) });
+      if (error?.code === '23505') return 'exists';
+      if (error) throw error;
+      return 'saved';
+    },
+    async getOwned(id, ownerId) {
+      const { data, error } = await backups().select('note_id, owner_id, title, body, content_sha256')
+        .eq('note_id', id).eq('owner_id', ownerId).maybeSingle();
+      if (error) throw error;
+      return data && data.owner_id === ownerId ? data : null;
+    },
+    async audit(entry) {
+      const { error } = await db.from('vault_audit_log').insert(entry);
+      if (error) throw error;
     },
   };
 }
@@ -272,6 +323,14 @@ export function createCollectionHandler(getDeps = defaultDeps) {
     const result = await deps.notes.insert({ id, ownerId: user.userId,
       title: input.title, body: input.body });
     if (result === 'duplicate') return send(res, 409, { error: '같은 id의 메모가 이미 있습니다.' });
+    // 10단계: 처음 만든 내용을 검증된 사본으로 남깁니다(실패해도 메모 추가는 유지, 내용은 기록하지 않음).
+    if (deps.backups) {
+      try {
+        await deps.backups.saveVerified({ id, ownerId: user.userId, title: input.title, body: input.body });
+      } catch (error) {
+        console.error('notes: 사본 저장 실패', error?.code ?? 'unknown');
+      }
+    }
     return send(res, 201, { id });
   }, getDeps);
 }
@@ -357,5 +416,48 @@ export function createNoticeItemHandler(getDeps = defaultDeps) {
     if (input.error) return send(res, 400, { error: input.error, reason: 'bad_input' });
     const notice = await deps.notices.update(id, { title: input.title, body: input.body });
     return noticeRow(notice, id) ? send(res, 200, publicNotice(notice)) : send(res, 404, { error: '공지를 찾을 수 없습니다.', reason: 'not_found' });
+  }, getDeps);
+}
+
+// 10단계 POST /api/notes/:id/restore — 검증된 사본에서 본인 메모 한 건만 되살립니다.
+// 1) 로그인 확인 2) 본인 소유 사본 찾기 3) 사본 내용 해시 검증 4) 지금 메모가 다른 사람 것이면 건드리지 않음
+// 5) 되돌리거나(변조) 다시 만들기(삭제) 6) 되살린 내용 해시를 사본과 다시 대조 7) 감사 기록 추가
+// 요청 본문의 내용·소유자 값은 쓰지 않습니다. 다른 메모와 감사 기록은 바꾸지 않습니다.
+export function createRestoreHandler(getDeps = defaultDeps) {
+  return withDeps(async (req, res, deps) => {
+    if (req.method !== 'POST') {
+      res.setHeader('Allow', 'POST');
+      return send(res, 405, { error: 'POST만 받습니다.' });
+    }
+    const user = await authenticate(req, res, deps);
+    if (!user) return undefined;
+    const rawId = Array.isArray(req.query?.id) ? req.query.id[0] : req.query?.id;
+    if (typeof rawId !== 'string' || !UUID.test(rawId)) {
+      return send(res, 404, { error: '복구할 사본이 없습니다.', reason: 'backup_not_found' });
+    }
+    const id = rawId.toLowerCase();
+    res.setHeader('X-Resource-Id', resourceId('note', id));
+    const backup = await deps.backups.getOwned(id, user.userId);
+    if (!backup || String(backup.owner_id).toLowerCase() !== user.userId.toLowerCase()) {
+      return send(res, 404, { error: '복구할 사본이 없습니다.', reason: 'backup_not_found' });
+    }
+    const expected = noteHash(backup.title, backup.body);
+    if (expected !== backup.content_sha256) {
+      return send(res, 409, { error: '사본 검증에 실패해 복구를 멈췄습니다.', reason: 'backup_unverified' });
+    }
+    const current = await deps.notes.ownerOf(id);
+    if (current.exists && String(current.ownerId).toLowerCase() !== user.userId.toLowerCase()) {
+      return send(res, 404, { error: '복구할 사본이 없습니다.', reason: 'backup_not_found' });
+    }
+    const restored = await deps.notes.restoreOwned({ id, ownerId: user.userId,
+      title: backup.title, body: backup.body, exists: current.exists });
+    if (!restored || noteHash(restored.title, restored.body) !== expected) {
+      return send(res, 409, { error: '복구 뒤 내용이 사본과 다릅니다.', reason: 'restore_mismatch' });
+    }
+    await deps.backups.audit({ action: 'restore_note', note_id: id, actor_id: user.userId,
+      previous_state: current.exists ? 'tampered_or_current' : 'deleted', content_sha256: expected,
+      at: deps.now ? deps.now() : new Date().toISOString() });
+    return send(res, 200, { id, owner: 'self', restored: current.exists ? 'reverted' : 'recreated',
+      contentSha256: expected, note: publicNote(restored) });
   }, getDeps);
 }
