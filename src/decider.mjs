@@ -16,7 +16,7 @@
 // 강사 공지 수정은 계약에 강사 역할 값이 없으므로(docs/DECIDER_REQUEST.md) 누구에게도 허용하지 않습니다.
 // 엔진이 확인한 사용자(subjectId)와 서비스(service)도 구역과 맞아야 합니다.
 // - subjectId가 없으면 누구의 요청인지 모르므로 거부합니다.
-// - 메모 구역은 service가 notes일 때만, 공지 구역은 notices(또는 notes)일 때만 받습니다.
+// - 메모 구역은 service가 notes일 때만, 공지 구역은 notices일 때만 받습니다(서로 다른 구역).
 // - 메모 :id 자리가 다른 사용자를 가리키면(요청자와 같은 형식의 다른 주체 ID) not_own_resource로 거부합니다.
 // 소유자 최종 대조는 자료 API(api/_notes-lib.js)가 한 번 더 합니다.
 export const RULE_IDS = Object.freeze(['device_registered', 'step_up_required', 'resource_zone']);
@@ -50,12 +50,20 @@ const INSTRUCTOR_ONLY = Object.freeze(['POST /notices', 'PUT /notices/:id', 'DEL
 // :id 자리에 오면 안 되는 기능 이름(자료 ID 자리에 기능을 숨기는 시도)
 const FUNCTION_WORDS = new Set(['export', 'import', 'download', 'backup', 'restore', 'all', 'bulk',
   'admin', 'search', 'list', 'raw', 'dump', 'share', 'copy', 'owner', 'role', 'notices', 'notes']);
-const ID_SEGMENT = /^(?!.*\.\.)[A-Za-z0-9_.:-]{1,128}$/u;
+const ID_SEGMENT = /^[A-Za-z0-9_-]{1,64}$/u;
 
-const ZONE_SERVICES = Object.freeze({ note: ['notes'], notice: ['notices', 'notes'] });
-function ownsResource(id, subjectId) {
-  return id === subjectId || [`${subjectId}_`, `${subjectId}-`, `${subjectId}:`, `${subjectId}.`]
-    .some(prefix => id.startsWith(prefix));
+// 구역마다 서비스 하나: 메모 서비스(notes)로 공지 구역을, 공지 서비스(notices)로 메모 구역을 열 수 없습니다.
+const ZONE_SERVICES = Object.freeze({ note: ['notes'], notice: ['notices'] });
+const escapeRegExp = value => value.replace(/[.*+?^${}()|[\]\\]/gu, '\\$&');
+
+// :id가 요청자가 아닌 다른 주체를 가리키는지. 주체 ID 앞머리(예: learner_)와 같은 형식인데
+// 요청자 본인 ID가 아니면 다른 사용자의 자료로 봅니다.
+function pointsToOtherSubject(id, subjectId) {
+  if (id === subjectId || id.startsWith(`${subjectId}_`) || id.startsWith(`${subjectId}-`)) return false;
+  if (id.includes(subjectId)) return false;
+  const prefix = /^([A-Za-z]+)[_-]/u.exec(subjectId)?.[1];
+  if (!prefix) return false;
+  return new RegExp(`(^|[_-])${escapeRegExp(prefix)}[_-]`, 'iu').test(id);
 }
 
 // "/api/notes/..."와 "/notes/..."를 같은 모양으로 봅니다.
@@ -88,9 +96,8 @@ function zoneCheck(request) {
       if (!ID_SEGMENT.test(pathParts[i]) || FUNCTION_WORDS.has(pathParts[i].toLowerCase())) {
         return 'route_not_allowed';
       }
-      // 메모 구역: 자기 메모만. 자료 ID가 엔진이 확인한 사용자(subjectId) 자신이거나
-      // 그 사용자 ID로 시작할 때만 허용하고, 그 밖의 메모 ID는 다른 사용자의 것으로 보고 거부합니다.
-      if (zone === 'note' && !ownsResource(pathParts[i], request.subjectId)) {
+      // 메모 구역: 다른 사용자를 가리키는 자료 ID는 거부
+      if (zone === 'note' && pointsToOtherSubject(pathParts[i], request.subjectId)) {
         return 'not_own_resource';
       }
     } else if (pathParts[i] !== shapeParts[i]) {
