@@ -37,7 +37,8 @@
 - 제작 2(판정기 `resource_zone`): 엔진이 확인한 메서드·경로 모양(`route`)·실제 경로(`path`)가 구역표와 정확히 맞을 때만 다음 검사로 넘어갑니다. 구역표는 메모 `GET·POST /notes`, `GET·PUT·DELETE /notes/:id`, 공지 `GET /notices`, `GET /notices/:id`입니다(`/api` 접두어는 같은 경로로 봄).
   - 공지 추가·수정·삭제 → `deny`·`zone_forbidden`. 계약에 강사 역할 값이 없어 판정기는 누구에게도 허용하지 않습니다.
   - 표에 없는 경로, 메서드와 경로 모양 불일치, 깊이·글자가 다른 실제 경로, `:id` 자리의 기능 이름(`export`·`admin`·`all` 등) → `route_not_allowed`. 쿼리 문자열이 있으면 `query_not_allowed`.
-  - 순서: 6단계 기기 → 8단계 구역 → 7단계 이상 접속. 판정 요청에 소유자 값이 없어 "B의 A 메모"는 아래 API가 막습니다.
+  - 재제출(첫 판정 36점, `S08_OTHER_ZONE_ALLOWED`: 다른 구역 메모 조회가 통함): 구역 검사가 메서드·경로만 보고 엔진이 확인한 사용자·서비스를 보지 않았습니다. 이제 `subjectId`가 없으면 `not_own_resource`, 메모 구역은 `service: notes`일 때만(공지는 `notices`·`notes`), 메모 `:id`가 요청자와 같은 형식의 다른 주체 ID(예: `learner_b`가 `/notes/learner_a`)를 가리키면 `not_own_resource`로 거부합니다.
+  - 순서: 6단계 기기 → 8단계 구역 → 7단계 이상 접속. 메모 소유자 최종 대조는 아래 API가 한 번 더 합니다.
 - 제작 3(API 재대조): 메모는 DB 조건(`owner_id`)과 별개로 꺼낸 행의 소유자를 검증된 사용자 ID와 다시 비교합니다. 공지 수정은 DB 강사 명단 `vault_instructors`에 검증된 사용자 ID가 있을 때만 됩니다(처음엔 비어 있어 아무도 못 고침). 화면 메뉴·요청 본문의 `role`·`isInstructor`는 읽지 않습니다. 거부 응답에 짧은 사유 `reason`(`not_owner_or_missing`·`not_instructor`·`owner_change`·`not_found`·`bad_input`)을 남깁니다.
 
 ### 8단계 확인 절차
