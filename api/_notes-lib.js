@@ -168,11 +168,38 @@ function storedOwner(row) {
   }
   return null;
 }
-function ownRow(row, userId) {
+// 행이 어느 구역 자료인지 표시한 값(kind·zone·type·resource·resourceId)이 있으면 그 구역과 맞아야 합니다.
+const ZONE_MARK_FIELDS = ['kind', 'zone', 'type', 'resource', 'resourceType', 'resourceId'];
+function zoneOf(row) {
+  for (const key of ZONE_MARK_FIELDS) {
+    if (row && typeof row[key] === 'string' && row[key]) {
+      const value = row[key].toLowerCase();
+      if (/^notices?(:|$)/u.test(value)) return 'notice';
+      if (/^notes?(:|$)|^memos?(:|$)/u.test(value)) return 'note';
+      return 'other';
+    }
+  }
+  return null;
+}
+// 메모 구역의 내 행인지: 다른 구역 표시가 없고, 저장된 소유자가 검증된 사용자와 같고,
+// (요청한 자료 ID가 있으면) DB가 돌려준 행의 ID도 요청한 ID와 같아야 합니다.
+function ownRow(row, userId, requestedId) {
   if (!row || typeof row !== 'object') return false;
+  const zone = zoneOf(row);
+  if (zone !== null && zone !== 'note') return false;
+  if (requestedId && String(row.id).toLowerCase() !== requestedId) return false;
   const owner = storedOwner(row);
   return owner === null || owner.toLowerCase() === userId.toLowerCase();
 }
+// 공지 구역의 행인지: 소유자가 붙은 개인 메모가 아니고, 다른 구역 표시가 없고, 요청한 ID와 같은 행이어야 합니다.
+function noticeRow(row, requestedId) {
+  if (!row || typeof row !== 'object') return false;
+  if (storedOwner(row) !== null) return false;
+  const zone = zoneOf(row);
+  if (zone !== null && zone !== 'notice') return false;
+  return !requestedId || String(row.id).toLowerCase() === requestedId;
+}
+const publicNotice = row => ({ id: row.id, title: row.title, body: row.body, updatedAt: row.updatedAt });
 const publicNote = row => ({ id: row.id, title: row.title, body: row.body });
 
 // 로그인 확인. 토큰이 없거나 검증에 실패하면 자료 없이 401을 돌려줍니다.
@@ -269,7 +296,7 @@ export function createItemHandler(getDeps = defaultDeps) {
     // 본인 메모가 아니면 없는 메모와 똑같이 404로 거절합니다(기본 거부).
     if (req.method === 'GET') {
       const note = await deps.notes.getOwned(id, user.userId);
-      return ownRow(note, user.userId) ? send(res, 200, publicNote(note)) : send(res, 404, { error: '메모를 찾을 수 없습니다.', reason: 'not_owner_or_missing' });
+      return ownRow(note, user.userId, id) ? send(res, 200, publicNote(note)) : send(res, 404, { error: '메모를 찾을 수 없습니다.', reason: 'not_owner_or_missing' });
     }
     if (req.method === 'PUT') {
       const raw = readBody(req);
@@ -280,7 +307,7 @@ export function createItemHandler(getDeps = defaultDeps) {
       if (input.error) return send(res, 400, { error: input.error });
       const note = await deps.notes.updateOwned(id, user.userId,
         { title: input.title, body: input.body });
-      return ownRow(note, user.userId) ? send(res, 200, publicNote(note)) : send(res, 404, { error: '메모를 찾을 수 없습니다.', reason: 'not_owner_or_missing' });
+      return ownRow(note, user.userId, id) ? send(res, 200, publicNote(note)) : send(res, 404, { error: '메모를 찾을 수 없습니다.', reason: 'not_owner_or_missing' });
     }
     const removed = await deps.notes.removeOwned(id, user.userId);
     return removed ? send(res, 204) : send(res, 404, { error: '메모를 찾을 수 없습니다.', reason: 'not_owner_or_missing' });
@@ -297,7 +324,8 @@ export function createNoticeCollectionHandler(getDeps = defaultDeps) {
     const user = await authenticate(req, res, deps);
     if (!user) return undefined;
     res.setHeader('X-Resource-Id', resourceId('notice'));
-    return send(res, 200, await deps.notices.list());
+    const rows = await deps.notices.list();
+    return send(res, 200, (Array.isArray(rows) ? rows : []).filter(row => noticeRow(row)).map(publicNotice));
   }, getDeps);
 }
 
@@ -318,7 +346,8 @@ export function createNoticeItemHandler(getDeps = defaultDeps) {
     res.setHeader('X-Resource-Id', resourceId('notice', id));
     if (req.method === 'GET') {
       const notice = await deps.notices.get(id);
-      return notice ? send(res, 200, notice) : send(res, 404, { error: '공지를 찾을 수 없습니다.', reason: 'not_found' });
+      // 공지 구역으로 다른 구역(개인 메모)의 행이 나오지 않게 합니다.
+      return noticeRow(notice, id) ? send(res, 200, publicNotice(notice)) : send(res, 404, { error: '공지를 찾을 수 없습니다.', reason: 'not_found' });
     }
     // PUT: 본문의 role 같은 값은 보지 않고, 검증된 사용자 ID로 DB 강사 명단만 확인합니다.
     if (!(await deps.notices.isInstructor(user.userId))) {
@@ -327,6 +356,6 @@ export function createNoticeItemHandler(getDeps = defaultDeps) {
     const input = noteInput(readBody(req));
     if (input.error) return send(res, 400, { error: input.error, reason: 'bad_input' });
     const notice = await deps.notices.update(id, { title: input.title, body: input.body });
-    return notice ? send(res, 200, notice) : send(res, 404, { error: '공지를 찾을 수 없습니다.', reason: 'not_found' });
+    return noticeRow(notice, id) ? send(res, 200, publicNotice(notice)) : send(res, 404, { error: '공지를 찾을 수 없습니다.', reason: 'not_found' });
   }, getDeps);
 }
