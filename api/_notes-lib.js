@@ -2,6 +2,8 @@ import { readFileSync } from 'node:fs';
 import { createHash, randomUUID } from 'node:crypto';
 import { createClient } from '@supabase/supabase-js';
 import { createLoginVerifier } from '../src/verify-login.mjs';
+import { defaultAuthClient } from './_auth-lib.js';
+import { createDeviceGate, deviceIdOf, publicJwk, supabaseDevices } from './_device-lib.js';
 
 // 공통: 로그인 토큰 검사 + 가상 메모 추가·읽기·수정·삭제.
 // 파일 이름이 _로 시작하므로 Vercel은 이 파일을 공개 경로로 만들지 않습니다.
@@ -45,8 +47,11 @@ export function defaultDeps() {
   const db = createClient(url, key, {
     auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false },
   });
+  const devices = supabaseDevices(db);
   cached = { verify, notes: supabaseNotes(db), notices: supabaseNotices(db),
-    backups: supabaseBackups(db), newId: randomUUID, now: () => new Date().toISOString() };
+    backups: supabaseBackups(db), newId: randomUUID, now: () => new Date().toISOString(),
+    // 11단계: 기기 명단·요청 서명 확인·비밀번호 재확인(승인용)
+    devices, deviceGate: createDeviceGate({ devices }), confirmPassword: supabasePasswordCheck(db) };
   return cached;
 }
 
@@ -253,8 +258,25 @@ function noticeRow(row, requestedId) {
 const publicNotice = row => ({ id: row.id, title: row.title, body: row.body, updatedAt: row.updatedAt });
 const publicNote = row => ({ id: row.id, title: row.title, body: row.body });
 
+// 11단계: 승인 요청 때 서버가 비밀번호를 다시 확인합니다. 비밀번호는 Supabase로 넘기기만 하고 저장·기록하지 않습니다.
+// 확인용으로 생긴 세션은 바로 끊습니다.
+export function supabasePasswordCheck(db) {
+  return async function confirmPassword(userId, password) {
+    const { data: found, error } = await db.auth.admin.getUserById(userId);
+    const email = found?.user?.email;
+    if (error || typeof email !== 'string') return false;
+    const auth = defaultAuthClient();
+    const { data, error: signInError } = await auth.signInWithPassword({ email, password });
+    if (signInError || data?.user?.id !== userId) return false;
+    try { await auth.admin.signOut(data.session.access_token, 'local'); } catch { /* 확인용 세션 정리 실패는 무시 */ }
+    return true;
+  };
+}
+
 // 로그인 확인. 토큰이 없거나 검증에 실패하면 자료 없이 401을 돌려줍니다.
-async function authenticate(req, res, deps) {
+// 11단계: 로그인 다음에 기기 서명을 확인합니다(path는 서버가 처리할 경로를 서버가 직접 만든 값).
+// 기기 확인 도구가 없으면 허용하지 않습니다(기본 거부).
+async function authenticate(req, res, deps, path, device = {}) {
   let user = null;
   try {
     user = await deps.verify(req.headers?.authorization);
@@ -266,8 +288,25 @@ async function authenticate(req, res, deps) {
     send(res, 401, { error: '로그인이 필요합니다.' });
     return null;
   }
-  return user;
+  let proof;
+  try {
+    proof = typeof deps.deviceGate === 'function'
+      ? await deps.deviceGate(req, user, path, device)
+      : { ok: false, status: 403, reason: 'device_check_unavailable', message: '기기 확인을 할 수 없습니다.' };
+  } catch {
+    proof = { ok: false, status: 403, reason: 'device_check_failed', message: '기기 확인에 실패했습니다.' };
+  }
+  if (!proof?.ok) {
+    send(res, proof?.status ?? 403, { error: proof?.message ?? '기기 확인에 실패했습니다.', reason: proof?.reason ?? 'device_check_failed' });
+    return null;
+  }
+  return { ...user, deviceId: proof.deviceId ?? null };
 }
+
+const queryId = (req) => (Array.isArray(req.query?.id) ? req.query.id[0] : req.query?.id);
+const pathPart = (value) => (typeof value === 'string' ? value : '');
+// 심판 토큰의 서명 없는 요청은 읽기(GET)만 받습니다. 바꾸는 요청은 누구든 승인된 기기 서명이 필요합니다.
+const readOnly = (req) => ({ judgeUnsigned: req.method === 'GET' });
 
 function withDeps(handler, getDeps) {
   return async function notesHandler(req, res) {
@@ -300,7 +339,7 @@ export function createCollectionHandler(getDeps = defaultDeps) {
       res.setHeader('Allow', 'GET, POST');
       return send(res, 405, { error: 'GET과 POST만 받습니다.' });
     }
-    const user = await authenticate(req, res, deps);
+    const user = await authenticate(req, res, deps, '/api/notes', readOnly(req));
     if (!user) return undefined;
     res.setHeader('X-Resource-Id', resourceId('note'));
 
@@ -342,7 +381,7 @@ export function createItemHandler(getDeps = defaultDeps) {
       res.setHeader('Allow', 'GET, PUT, DELETE');
       return send(res, 405, { error: 'GET, PUT, DELETE만 받습니다.' });
     }
-    const user = await authenticate(req, res, deps);
+    const user = await authenticate(req, res, deps, `/api/notes/${pathPart(queryId(req))}`, readOnly(req));
     if (!user) return undefined;
 
     const rawId = Array.isArray(req.query?.id) ? req.query.id[0] : req.query?.id;
@@ -380,7 +419,7 @@ export function createNoticeCollectionHandler(getDeps = defaultDeps) {
       res.setHeader('Allow', 'GET');
       return send(res, 405, { error: 'GET만 받습니다.' });
     }
-    const user = await authenticate(req, res, deps);
+    const user = await authenticate(req, res, deps, '/api/notices', readOnly(req));
     if (!user) return undefined;
     res.setHeader('X-Resource-Id', resourceId('notice'));
     const rows = await deps.notices.list();
@@ -395,7 +434,7 @@ export function createNoticeItemHandler(getDeps = defaultDeps) {
       res.setHeader('Allow', 'GET, PUT');
       return send(res, 405, { error: 'GET과 PUT만 받습니다.' });
     }
-    const user = await authenticate(req, res, deps);
+    const user = await authenticate(req, res, deps, `/api/notices/${pathPart(queryId(req))}`, readOnly(req));
     if (!user) return undefined;
     const rawId = Array.isArray(req.query?.id) ? req.query.id[0] : req.query?.id;
     if (typeof rawId !== 'string' || !UUID.test(rawId)) {
@@ -429,7 +468,9 @@ export function createRestoreHandler(getDeps = defaultDeps) {
       res.setHeader('Allow', 'POST');
       return send(res, 405, { error: 'POST만 받습니다.' });
     }
-    const user = await authenticate(req, res, deps);
+    // 복구는 요청 본문을 쓰지 않고 서버의 검증된 사본만 되살리므로, 운영 심판 토큰은 서명 없이도 받습니다(10단계 경로 유지).
+    // 학생 로그인 토큰은 승인된 기기 서명이 필요합니다.
+    const user = await authenticate(req, res, deps, `/api/notes/${pathPart(queryId(req))}/restore`, { judgeUnsigned: true });
     if (!user) return undefined;
     const rawId = Array.isArray(req.query?.id) ? req.query.id[0] : req.query?.id;
     if (typeof rawId !== 'string' || !UUID.test(rawId)) {
@@ -459,5 +500,68 @@ export function createRestoreHandler(getDeps = defaultDeps) {
       at: deps.now ? deps.now() : new Date().toISOString() });
     return send(res, 200, { id, owner: 'self', restored: current.exists ? 'reverted' : 'recreated',
       contentSha256: expected, note: publicNote(restored) });
+  }, getDeps);
+}
+
+// ── 11단계: 기기 등록·승인·상태 ─────────────────────────────────────────────
+// POST /api/devices { publicKey }            → 등록(승인 대기). 본문의 공개키로 서명돼 있어야 합니다.
+// POST /api/devices/approve { password }     → 서버가 비밀번호를 다시 확인하고, 등록한 기기 키 서명이 맞을 때만 승인
+// GET  /api/devices/status                   → 서버 DB 기준 이 기기의 상태(approved일 때만 registered: true)
+// 학생 로그인 토큰만 받습니다. 기기 ID는 서버가 공개키 지문으로 계산합니다.
+const deviceView = (row) => ({ deviceId: row.device_id, status: row.status, registered: row.status === 'approved' });
+
+export function createDeviceRegisterHandler(getDeps = defaultDeps) {
+  return withDeps(async (req, res, deps) => {
+    if (req.method !== 'POST') {
+      res.setHeader('Allow', 'POST');
+      return send(res, 405, { error: 'POST만 받습니다.' });
+    }
+    const jwk = publicJwk(readBody(req)?.publicKey);
+    if (!jwk) return send(res, 400, { error: '기기 공개키(P-256)가 필요합니다.', reason: 'bad_public_key' });
+    const user = await authenticate(req, res, deps, '/api/devices', { mode: 'register', jwk });
+    if (!user) return undefined;
+    if (user.kind !== 'student') return send(res, 403, { error: '학생 로그인으로만 기기를 등록합니다.', reason: 'student_only' });
+    const row = await deps.devices.register({ deviceId: deviceIdOf(jwk), ownerId: user.userId, jwk,
+      now: deps.now ? deps.now() : new Date().toISOString() });
+    if (row === 'conflict' || !row) return send(res, 409, { error: '이 기기 키는 쓸 수 없습니다.', reason: 'device_conflict' });
+    return send(res, 200, deviceView(row));
+  }, getDeps);
+}
+
+export function createDeviceApproveHandler(getDeps = defaultDeps) {
+  return withDeps(async (req, res, deps) => {
+    if (req.method !== 'POST') {
+      res.setHeader('Allow', 'POST');
+      return send(res, 405, { error: 'POST만 받습니다.' });
+    }
+    const user = await authenticate(req, res, deps, '/api/devices/approve', { mode: 'pending' });
+    if (!user) return undefined;
+    if (user.kind !== 'student') return send(res, 403, { error: '학생 로그인으로만 기기를 승인합니다.', reason: 'student_only' });
+    const password = readBody(req)?.password;
+    if (typeof password !== 'string' || !password || password.length > 512) {
+      return send(res, 400, { error: '비밀번호를 다시 입력해 주세요.', reason: 'password_required' });
+    }
+    // 승인 버튼을 눌렀다는 사실이 아니라, 서버가 비밀번호를 확인한 결과로만 승인합니다.
+    if (!(await deps.confirmPassword(user.userId, password))) {
+      return send(res, 403, { error: '비밀번호가 맞지 않아 기기를 승인하지 않았습니다.', reason: 'reauth_failed' });
+    }
+    const row = await deps.devices.approve({ deviceId: user.deviceId, ownerId: user.userId,
+      now: deps.now ? deps.now() : new Date().toISOString() });
+    if (!row) return send(res, 403, { error: '이 기기는 승인할 수 없습니다.', reason: 'device_not_approvable' });
+    return send(res, 200, deviceView(row));
+  }, getDeps);
+}
+
+export function createDeviceStatusHandler(getDeps = defaultDeps) {
+  return withDeps(async (req, res, deps) => {
+    if (req.method !== 'GET') {
+      res.setHeader('Allow', 'GET');
+      return send(res, 405, { error: 'GET만 받습니다.' });
+    }
+    const user = await authenticate(req, res, deps, '/api/devices/status', { mode: 'pending' });
+    if (!user) return undefined;
+    const row = await deps.devices.get(user.deviceId);
+    if (!row) return send(res, 403, { error: '등록되지 않은 기기입니다.', reason: 'device_not_registered' });
+    return send(res, 200, deviceView(row));
   }, getDeps);
 }
