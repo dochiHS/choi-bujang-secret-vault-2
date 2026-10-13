@@ -158,6 +158,23 @@ function changesOwner(raw, userId) {
     && String(raw[key]).toLowerCase() !== userId.toLowerCase());
 }
 
+// 8단계 제작 3(처리기 단계 재대조): DB 도구가 어떤 행을 돌려주든, 처리기가 응답 직전에
+// 행에 저장된 소유자와 검증된 사용자 ID를 한 번 더 비교합니다. 소유자 값이 다른 행은 없는 메모처럼 다룹니다.
+// 응답에는 id·title·body만 내보냅니다(소유자 값은 내보내지 않음).
+const STORED_OWNER_FIELDS = ['owner_id', 'ownerId', 'owner', 'user_id', 'userId'];
+function storedOwner(row) {
+  for (const key of STORED_OWNER_FIELDS) {
+    if (row && Object.hasOwn(row, key) && row[key] !== undefined && row[key] !== null) return String(row[key]);
+  }
+  return null;
+}
+function ownRow(row, userId) {
+  if (!row || typeof row !== 'object') return false;
+  const owner = storedOwner(row);
+  return owner === null || owner.toLowerCase() === userId.toLowerCase();
+}
+const publicNote = row => ({ id: row.id, title: row.title, body: row.body });
+
 // 로그인 확인. 토큰이 없거나 검증에 실패하면 자료 없이 401을 돌려줍니다.
 async function authenticate(req, res, deps) {
   let user = null;
@@ -210,7 +227,9 @@ export function createCollectionHandler(getDeps = defaultDeps) {
     res.setHeader('X-Resource-Id', resourceId('note'));
 
     if (req.method === 'GET') {
-      return send(res, 200, await deps.notes.listByOwner(user.userId));
+      const rows = await deps.notes.listByOwner(user.userId);
+      return send(res, 200, (Array.isArray(rows) ? rows : [])
+        .filter(row => ownRow(row, user.userId)).map(publicNote));
     }
 
     const raw = readBody(req);
@@ -250,7 +269,7 @@ export function createItemHandler(getDeps = defaultDeps) {
     // 본인 메모가 아니면 없는 메모와 똑같이 404로 거절합니다(기본 거부).
     if (req.method === 'GET') {
       const note = await deps.notes.getOwned(id, user.userId);
-      return note ? send(res, 200, note) : send(res, 404, { error: '메모를 찾을 수 없습니다.', reason: 'not_owner_or_missing' });
+      return ownRow(note, user.userId) ? send(res, 200, publicNote(note)) : send(res, 404, { error: '메모를 찾을 수 없습니다.', reason: 'not_owner_or_missing' });
     }
     if (req.method === 'PUT') {
       const raw = readBody(req);
@@ -261,7 +280,7 @@ export function createItemHandler(getDeps = defaultDeps) {
       if (input.error) return send(res, 400, { error: input.error });
       const note = await deps.notes.updateOwned(id, user.userId,
         { title: input.title, body: input.body });
-      return note ? send(res, 200, note) : send(res, 404, { error: '메모를 찾을 수 없습니다.', reason: 'not_owner_or_missing' });
+      return ownRow(note, user.userId) ? send(res, 200, publicNote(note)) : send(res, 404, { error: '메모를 찾을 수 없습니다.', reason: 'not_owner_or_missing' });
     }
     const removed = await deps.notes.removeOwned(id, user.userId);
     return removed ? send(res, 204) : send(res, 404, { error: '메모를 찾을 수 없습니다.', reason: 'not_owner_or_missing' });
