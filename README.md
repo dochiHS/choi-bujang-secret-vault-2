@@ -30,7 +30,30 @@
 | 6단계 | 통과 | 판정기 `src/decider.mjs`에 `device_registered` 규칙: 엔진이 확인한 `deviceRegistered`가 정확히 `true`이고 `deviceId`가 16자리 소문자 16진수일 때만 `allow`, 그 밖에는 `deny`·`device_not_registered` |
 | 7단계 | 통과 | 판정기에 `step_up_required` 규칙: 믿을 수 있는 출처의 접속 정보에서 지역·시각·네트워크·최근 행동이 평소와 다르면 `step_up`, 5분 안에 다시 확인했으면 `allow`. 지역 하나로 영구 차단하지 않음 |
 | 8단계 | 통과 | 판정기 `zone_access` 기본 거부: 메모 구역 자료 한 건(`/notes/:id`) 읽기·수정은 엔진이 확인한 사용자 본인 메모로 확인될 때만 허용, 목록·추가·삭제·모르는 경로·쿼리 기능·학생의 공지 수정은 `deny`·`zone_access_denied`. API는 소유자·구역 재대조 |
-| 9단계 | 제출 | 탐지기 `src/detect.mjs`: 같은 신원의 `GET`이 어느 10분 구간에서든 120건을 넘으면(네트워크 정보가 있으면 낯선 네트워크와 함께일 때만) `propose_revocation`·`burst_read` 제안, 그 밖에는 `observe` |
+| 9단계 | 통과 | 탐지기 `src/detect.mjs`: 같은 신원의 `GET`이 어느 10분 구간에서든 120건을 넘으면(네트워크 정보가 있으면 낯선 네트워크와 함께일 때만) `propose_revocation`·`burst_read` 제안, 그 밖에는 `observe` |
+| 10단계 | 제출 | 검증 사본 복구: 메모를 처음 만들 때 사본(`vault_note_backups`)을 남기고, `POST /api/notes/:id/restore`가 본인 메모 한 건만 ID·소유자·내용 해시를 대조해 되돌리거나 다시 만듦. 감사 기록(`vault_audit_log`)은 추가만. 안전 정책 사본(`policy/verified`) 비교·복원 도구 |
+
+## 10단계: 백업에서 자료실을 되살립니다
+
+- 제작 1·2(정책): `policy/verified/`에 8단계 통과 판정기 사본과 목록(`manifest.json`: 판정기 SHA-256·규칙 이름·허용 경로)을 두었습니다. `npm run policy:diff`는 복원할 버전과 바뀔 항목만 보여 주고, `npm run policy:restore -- --yes`는 사본 지문을 검증한 뒤 `src/decider.mjs`만 되돌립니다. 사본이 없거나 지문이 다르면 중단합니다. 운영 반 엔진 정책·다른 서비스 규칙·감사 기록은 건드리지 않습니다.
+- 제작 3(메모 한 건 복구): 서비스 `notes`, 경로 **`POST /api/notes/:id/restore`**(`aleph.config.json`의 `restoreRoute`, 배포 `/aleph.json`에도 기록).
+  - 메모를 처음 만들 때(`POST /api/notes`) 그 내용을 검증 사본으로 한 번 저장합니다. 이후 수정(PUT)으로는 사본이 바뀌지 않습니다. 기존 메모(시험 계정 A·B)는 `supabase/step10_backup.sql`로 지금 내용을 사본으로 남겼습니다.
+  - 복구는 로그인한 본인의 사본만 찾고, 사본 지문(`sha256(UTF-8 "제목바이트수:제목본문")`)을 다시 계산해 맞을 때만 진행합니다. 변조된 메모는 사본 내용으로 되돌리고(`reverted`), 삭제된 메모는 같은 ID·소유자로 다시 만듭니다(`recreated`). 되살린 내용의 지문을 사본과 다시 대조하고, 감사 기록에 한 줄 추가합니다.
+  - 다른 사람 메모·사본 없음은 404(`backup_not_found`), 사본 검증 실패는 409(`backup_unverified`), 토큰 없음은 401입니다. 요청 본문의 내용·소유자 값은 쓰지 않습니다. 다른 메모와 감사 기록은 바꾸지 않습니다.
+- 확인: `npm run test:r10`(가짜 토큰·메모리 자료) — B 메모 변조→복구, 삭제→재생성, 지문 일치, A 메모 보존, 감사 기록 2건, B의 A 메모 복구·조회 거부, 사본 변조 시 중단.
+
+### 복구 뒤 다시 확인할 순서 (제작 4)
+
+| 순서 | 확인 | 정상 | 금지(거부되어야 함) | 상태 |
+|---|---|---|---|---|
+| 1 | 시험 계정 B 메모 복구 | `POST /api/notes/:id/restore` 200, 지문이 사본과 같음 | 다른 계정이 B 메모 복구 404 | 로컬 연습만 실행(`test:r10`), 실제 배포 미실행 |
+| 2 | 1~2단계 공개 자료 | — | `/data.json` 404, 첫 화면에 메모 문장 없음 | `npm run bundle` 자기 점검으로 실행 |
+| 3 | 3~5단계 로그인·소유자 | A·B 자기 메모 읽기 | 토큰 없음 401, B의 A 메모 404, 공개 키 직접 조회 거절 | `test:r5` 로컬 실행, 실제 계정 재시험 미실행 |
+| 4 | 6~8단계 판정기 | 등록 기기 본인 메모 allow | 미등록 기기 deny, 복합 이상 step_up, B의 A 메모·목록·공지 수정 deny | `decider:test`·`fixture:7` 로컬 실행 |
+| 5 | 9단계 탐지 | 정상 조회 observe | 10분 121건 이상 propose_revocation | `detect:test` 로컬 실행 |
+| 6 | 정책 사본 대조 | `policy:diff`가 "같습니다" | — | 로컬 실행 |
+
+실제 배포에서 시험 계정으로 다시 해 본 결과는 위 표에 적지 않았습니다(미실행). 결과를 꾸미지 않습니다.
 
 ## 9단계: 도플갱어를 찾고 권한을 거둡니다
 
