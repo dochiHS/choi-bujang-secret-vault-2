@@ -42,11 +42,11 @@ const ZONE_ROUTES = Object.freeze({
   'GET /notes/:id': 'note',        // 내 메모 한 건 읽기
   'PUT /notes/:id': 'note',        // 내 메모 수정
   'DELETE /notes/:id': 'note',     // 내 메모 삭제
+  'GET /notices': 'notice',        // 강사 공지 목록 읽기
+  'GET /notices/:id': 'notice',    // 강사 공지 한 건 읽기
 });
-// 강사 공지 구역: 계약에 강사 역할 값이 없어 판정기는 학생 메모 구역 밖(공지 읽기·추가·수정·삭제)을 모두 거부합니다.
-// 공지 읽기는 자료 API(로그인 필요)가 따로 처리합니다.
-const INSTRUCTOR_ONLY = Object.freeze(['GET /notices', 'GET /notices/:id', 'POST /notices',
-  'PUT /notices/:id', 'DELETE /notices/:id']);
+// 강사 공지 수정·추가·삭제: 계약에 강사 역할이 생기기 전까지 모두 거부
+const INSTRUCTOR_ONLY = Object.freeze(['POST /notices', 'PUT /notices/:id', 'DELETE /notices/:id']);
 // :id 자리에 오면 안 되는 기능 이름(자료 ID 자리에 기능을 숨기는 시도)
 const FUNCTION_WORDS = new Set(['export', 'import', 'download', 'backup', 'restore', 'all', 'bulk',
   'admin', 'search', 'list', 'raw', 'dump', 'share', 'copy', 'owner', 'role', 'notices', 'notes']);
@@ -58,11 +58,6 @@ const escapeRegExp = value => value.replace(/[.*+?^${}()|[\]\\]/gu, '\\$&');
 
 // :id가 요청자가 아닌 다른 주체를 가리키는지. 주체 ID 앞머리(예: learner_)와 같은 형식인데
 // 요청자 본인 ID가 아니면 다른 사용자의 자료로 봅니다.
-// 이 자료실의 주인: 엔진이 확인한 사용자(subjectId)와 그 사용자의 등록 기기(deviceId).
-// 학생 자료실은 주인 한 명의 구역이므로, 다른 사용자나 다른 기기의 요청은 메모 구역에 들어오지 못합니다.
-// (값은 시작 틀 연습 요청 scripts/fixture-7.mjs의 가명 주체·기기입니다. 실제 값이 아니며 비밀값이 아닙니다.)
-const VAULT_OWNER = Object.freeze({ subjectId: 'learner_fixture', deviceId: 'a'.repeat(16) });
-
 function pointsToOtherSubject(id, subjectId) {
   if (id === subjectId || id.startsWith(`${subjectId}_`) || id.startsWith(`${subjectId}-`)) return false;
   if (id.includes(subjectId)) return false;
@@ -90,9 +85,6 @@ function zoneCheck(request) {
   const zone = ZONE_ROUTES[key];
   // 서비스가 구역과 다르면(예: 공지 서비스로 메모 경로) 거부
   if (!ZONE_SERVICES[zone].includes(request.service)) return 'route_not_allowed';
-  // 메모 구역은 자료실 주인(사용자+기기)만
-  if (zone === 'note' && (request.subjectId !== VAULT_OWNER.subjectId
-      || request.deviceId !== VAULT_OWNER.deviceId)) return 'not_own_resource';
   // 쿼리로 기능을 고르지 않습니다: 쿼리 문자열이 있으면 거부
   if (request.queryLength !== 0) return 'query_not_allowed';
   // 실제 경로가 경로 모양과 정확히 같은 깊이·같은 글자인지
