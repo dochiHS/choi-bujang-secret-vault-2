@@ -20,6 +20,8 @@ if (!process.argv.includes('--local')) {
   if (typeof config.originalApiUrl === 'string' && config.originalApiUrl.startsWith('https://')) {
     identity.originalApiUrl = config.originalApiUrl;
   }
+  // 10단계: 심판이 부를 복구 경로(비밀값 없음)
+  if (typeof config.restoreRoute === 'string' && config.restoreRoute) identity.restoreRoute = config.restoreRoute;
   await writeFile(resolve(root, 'public', 'aleph.json'),
     `${JSON.stringify(identity, null, 2)}\n`, 'utf8');
   console.log('배포 저장소·커밋·주소를 public/aleph.json에 기록했습니다.');
