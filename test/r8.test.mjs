@@ -14,6 +14,7 @@ function deps() {
   const notes = new Map([[NOTE, { id: NOTE, owner_id: USER_A, title: 'A 메모', body: 'a' }]]);
   const notices = new Map([[NOTICE, { id: NOTICE, title: '공지', body: 'n', updatedAt: '2026-10-13T00:00:00Z' }]]);
   return {
+    deviceGate: async () => ({ ok: true, via: "approved_device_stub", deviceId: null }), // 11단계: 앞 단계 시험은 승인된 기기에서 보낸 요청으로 가정
     verify: async (h) => ({ 'Bearer a.a.a': { kind: 'student', userId: USER_A },
       'Bearer b.b.b': { kind: 'student', userId: USER_B },
       'Bearer t.t.t': { kind: 'student', userId: TEACHER } })[h] ?? null,
@@ -87,6 +88,7 @@ test('stage 8 DB adapter drops rows whose stored owner differs', async () => {
 
 test('stage 8 handler re-check: a DB that hands back another owner\'s row still leaks nothing', async () => {
   const leaky = () => ({
+    deviceGate: async () => ({ ok: true, via: "approved_device_stub", deviceId: null }), // 11단계: 앞 단계 시험은 승인된 기기에서 보낸 요청으로 가정
     verify: async (h) => ({ 'Bearer a.a.a': { kind: 'student', userId: USER_A },
       'Bearer b.b.b': { kind: 'student', userId: USER_B } })[h] ?? null,
     newId: () => NOTE,
@@ -113,6 +115,7 @@ test('stage 8 handler re-check: a DB that hands back another owner\'s row still 
 
 test('stage 8 zones in the API: a memo never comes out of the notice route, and vice versa', async () => {
   const mixed = () => ({
+    deviceGate: async () => ({ ok: true, via: "approved_device_stub", deviceId: null }), // 11단계: 앞 단계 시험은 승인된 기기에서 보낸 요청으로 가정
     verify: async (h) => ({ 'Bearer a.a.a': { kind: 'student', userId: USER_A },
       'Bearer b.b.b': { kind: 'student', userId: USER_B } })[h] ?? null,
     newId: () => NOTE,

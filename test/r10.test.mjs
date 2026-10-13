@@ -14,6 +14,7 @@ function world() {
   const audit = [];
   let next = [NOTE_B, NOTE_A];
   const deps = {
+    deviceGate: async () => ({ ok: true, via: "approved_device_stub", deviceId: null }), // 11단계: 앞 단계 시험은 승인된 기기에서 보낸 요청으로 가정
     verify: async (h) => ({ 'Bearer a.a.a': { kind: 'student', userId: USER_A },
       'Bearer b.b.b': { kind: 'student', userId: USER_B } })[h] ?? null,
     newId: () => next.shift(),
