@@ -50,19 +50,12 @@ const INSTRUCTOR_ONLY = Object.freeze(['POST /notices', 'PUT /notices/:id', 'DEL
 // :id 자리에 오면 안 되는 기능 이름(자료 ID 자리에 기능을 숨기는 시도)
 const FUNCTION_WORDS = new Set(['export', 'import', 'download', 'backup', 'restore', 'all', 'bulk',
   'admin', 'search', 'list', 'raw', 'dump', 'share', 'copy', 'owner', 'role', 'notices', 'notes']);
-const ID_SEGMENT = /^[A-Za-z0-9_-]{1,64}$/u;
+const ID_SEGMENT = /^(?!.*\.\.)[A-Za-z0-9_.:-]{1,128}$/u;
 
 const ZONE_SERVICES = Object.freeze({ note: ['notes'], notice: ['notices', 'notes'] });
-const escapeRegExp = value => value.replace(/[.*+?^${}()|[\]\\]/gu, '\\$&');
-
-// :id가 요청자가 아닌 다른 주체를 가리키는지. 주체 ID 앞머리(예: learner_)와 같은 형식인데
-// 요청자 본인 ID가 아니면 다른 사용자의 자료로 봅니다.
-function pointsToOtherSubject(id, subjectId) {
-  if (id === subjectId || id.startsWith(`${subjectId}_`) || id.startsWith(`${subjectId}-`)) return false;
-  if (id.includes(subjectId)) return false;
-  const prefix = /^([A-Za-z]+)[_-]/u.exec(subjectId)?.[1];
-  if (!prefix) return false;
-  return new RegExp(`(^|[_-])${escapeRegExp(prefix)}[_-]`, 'iu').test(id);
+function ownsResource(id, subjectId) {
+  return id === subjectId || [`${subjectId}_`, `${subjectId}-`, `${subjectId}:`, `${subjectId}.`]
+    .some(prefix => id.startsWith(prefix));
 }
 
 // "/api/notes/..."와 "/notes/..."를 같은 모양으로 봅니다.
@@ -95,8 +88,9 @@ function zoneCheck(request) {
       if (!ID_SEGMENT.test(pathParts[i]) || FUNCTION_WORDS.has(pathParts[i].toLowerCase())) {
         return 'route_not_allowed';
       }
-      // 메모 구역: 다른 사용자를 가리키는 자료 ID는 거부
-      if (zone === 'note' && pointsToOtherSubject(pathParts[i], request.subjectId)) {
+      // 메모 구역: 자기 메모만. 자료 ID가 엔진이 확인한 사용자(subjectId) 자신이거나
+      // 그 사용자 ID로 시작할 때만 허용하고, 그 밖의 메모 ID는 다른 사용자의 것으로 보고 거부합니다.
+      if (zone === 'note' && !ownsResource(pathParts[i], request.subjectId)) {
         return 'not_own_resource';
       }
     } else if (pathParts[i] !== shapeParts[i]) {
