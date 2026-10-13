@@ -133,5 +133,37 @@ export async function runAttackChecks(config) {
   results.push({ attackId: 'cross_owner_note_access',
     expected: 'B가 A 메모를 읽기·수정·삭제하거나 소유자를 바꾸면 거절, 각자 자기 메모는 허용',
     observed: '미실행: 두 계정의 실제 로그인 토큰이 필요해 자동 점검에서 보내지 않음. 배포 화면과 test/r5.test.mjs로 확인' });
+
+  // 10~14) 6단계 판정기(src/decider.mjs)에 가상 요청을 직접 넣어 본 결과(로컬 실행, 심판 판정 아님)
+  if (config.step >= 6) {
+    const { decide } = await import('./decider.mjs');
+    const base = {
+      schema: 'aleph.decision.v1', requestId: randomUUID(), classId: 'class_fixture',
+      projectId: 'project_fixture', subjectId: 'learner_fixture', deviceId: 'a'.repeat(16),
+      service: 'notes', method: 'GET', path: '/notes/demo', route: 'GET /notes/:id',
+      queryLength: 0, querySha256: 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855',
+      at: new Date().toISOString(), policyRevision: 1, deviceRegistered: true,
+      stepUp: { verified: false, authAgeSeconds: null }, recentEvents: [],
+      signals: { source: 'none', region: 'unknown', network: 'unknown', hour: 12 },
+    };
+    const deviceCases = [
+      ['decider_registered_device', '등록 기기(deviceRegistered true)의 정상 요청은 allow', {}],
+      ['decider_unregistered_device', '미등록 기기(deviceRegistered false)는 deny · device_not_registered',
+        { deviceRegistered: false }],
+      ['decider_missing_device_flag', '기기 등록 값이 없으면 deny · device_not_registered',
+        { deviceRegistered: undefined }],
+      ['decider_string_true_device', '문자열 "true"처럼 참이 아닌 값은 deny · device_not_registered',
+        { deviceRegistered: 'true' }],
+      ['decider_malformed_device_id', '계약 형식(16자리 소문자 16진수)이 아닌 기기 ID는 deny · device_not_registered',
+        { deviceId: 'virtual-device' }],
+    ];
+    for (const [attackId, expected, change] of deviceCases) {
+      const request = { ...base, ...change, requestId: randomUUID() };
+      if ('deviceRegistered' in change && change.deviceRegistered === undefined) delete request.deviceRegistered;
+      const response = await decide(request);
+      results.push({ attackId, expected,
+        observed: `로컬 판정기 응답: ${response?.decision} · ${response?.reasonCode} · ${JSON.stringify(response?.ruleIds)}` });
+    }
+  }
   return results;
 }
