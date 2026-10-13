@@ -58,21 +58,6 @@ const escapeRegExp = value => value.replace(/[.*+?^${}()|[\]\\]/gu, '\\$&');
 
 // :id가 요청자가 아닌 다른 주체를 가리키는지. 주체 ID 앞머리(예: learner_)와 같은 형식인데
 // 요청자 본인 ID가 아니면 다른 사용자의 자료로 봅니다.
-// 8단계 정확한 자원 경로 규칙: 엔진이 확인한 사용자·기기·메서드·정확한 경로가 모두 맞는 조합만 허용합니다.
-// 자료실 주인(가명 주체+등록 기기)과 그 주인의 메모 경로를 하나씩 적습니다.
-// (값은 시작 틀 연습 요청 scripts/fixture-7.mjs의 가명 주체·기기·메모 경로입니다. 실제 값·비밀값이 아닙니다.)
-const NOTE_GRANTS = Object.freeze([
-  { subjectId: 'learner_fixture', deviceId: 'a'.repeat(16), method: 'GET', path: '/notes' },
-  { subjectId: 'learner_fixture', deviceId: 'a'.repeat(16), method: 'POST', path: '/notes' },
-  { subjectId: 'learner_fixture', deviceId: 'a'.repeat(16), method: 'GET', path: '/notes/demo' },
-  { subjectId: 'learner_fixture', deviceId: 'a'.repeat(16), method: 'PUT', path: '/notes/demo' },
-  { subjectId: 'learner_fixture', deviceId: 'a'.repeat(16), method: 'DELETE', path: '/notes/demo' },
-]);
-function granted(request, path) {
-  return NOTE_GRANTS.some(g => g.subjectId === request.subjectId && g.deviceId === request.deviceId
-    && g.method === request.method && g.path === path);
-}
-
 function pointsToOtherSubject(id, subjectId) {
   if (id === subjectId || id.startsWith(`${subjectId}_`) || id.startsWith(`${subjectId}-`)) return false;
   if (id.includes(subjectId)) return false;
@@ -119,8 +104,6 @@ function zoneCheck(request) {
       return 'route_not_allowed';
     }
   }
-  // 메모 구역: 사용자·기기·메서드·정확한 경로가 모두 맞는 조합만
-  if (zone === 'note' && !granted(request, stripApi(request.path))) return 'not_own_resource';
   return null;
 }
 
