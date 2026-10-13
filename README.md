@@ -31,7 +31,26 @@
 | 7단계 | 통과 | 판정기에 `step_up_required` 규칙: 믿을 수 있는 출처의 접속 정보에서 지역·시각·네트워크·최근 행동이 평소와 다르면 `step_up`, 5분 안에 다시 확인했으면 `allow`. 지역 하나로 영구 차단하지 않음 |
 | 8단계 | 통과 | 판정기 `zone_access` 기본 거부: 메모 구역 자료 한 건(`/notes/:id`) 읽기·수정은 엔진이 확인한 사용자 본인 메모로 확인될 때만 허용, 목록·추가·삭제·모르는 경로·쿼리 기능·학생의 공지 수정은 `deny`·`zone_access_denied`. API는 소유자·구역 재대조 |
 | 9단계 | 통과 | 탐지기 `src/detect.mjs`: 같은 신원의 `GET`이 어느 10분 구간에서든 120건을 넘으면(네트워크 정보가 있으면 낯선 네트워크와 함께일 때만) `propose_revocation`·`burst_read` 제안, 그 밖에는 `observe` |
-| 10단계 | 제출 | 검증 사본 복구: 메모를 처음 만들 때 사본(`vault_note_backups`)을 남기고, `POST /api/notes/:id/restore`가 본인 메모 한 건만 ID·소유자·내용 해시를 대조해 되돌리거나 다시 만듦. 감사 기록(`vault_audit_log`)은 추가만. 안전 정책 사본(`policy/verified`) 비교·복원 도구 |
+| 10단계 | 통과 | 검증 사본 복구: 메모를 처음 만들 때 사본(`vault_note_backups`)을 남기고, `POST /api/notes/:id/restore`가 본인 메모 한 건만 ID·소유자·내용 해시를 대조해 되돌리거나 다시 만듦. 감사 기록(`vault_audit_log`)은 추가만. 안전 정책 사본(`policy/verified`) 비교·복원 도구 |
+| 11단계 | 제출 | 설치형 웹앱 화면(`manifest.webmanifest`)과 기기 승인 흐름. 세션·기기 키는 탭 메모리에만(브라우저 저장소 사용 안 함), 서버가 비밀번호 재확인+기기 서명으로 승인(`vault_devices`)한 뒤에만 자료실을 열고, 모든 보호 요청은 승인된 기기 키로 방식·경로·본문 해시를 서명 |
+
+## 11단계: 나만의 접속 앱을 완성합니다
+
+- 제작 1(설치형 앱): `public/manifest.webmanifest`(앱 이름·아이콘·standalone)와 첫 화면의 앱 상태 표시를 붙였습니다. 화면 표시는 "설치형 앱 화면으로 열림/브라우저 탭으로 열림 · 기기 확인과 별개"로만 적고, 설치 여부로 기기 확인이 끝났다고 쓰지 않습니다. 오프라인이면 "서버 확인이 필요해 자료를 보여 주지 않는다"는 안내를 띄웁니다. 서비스 워커·오프라인 캐시는 두지 않아 메모가 기기에 남지 않습니다. 따로 설치하는 접속 프로그램은 없습니다.
+- 제작 2(기기 승인):
+  - 로그인 세션과 기기 키는 탭 메모리(변수)에만 둡니다. 브라우저 저장소(로컬·세션 저장소, 색인 DB, 쿠키)에는 아무것도 넣지 않습니다. 새로 고치면 다시 로그인·승인합니다.
+  - 기기 키는 WebCrypto ECDSA P-256, 개인키는 내보낼 수 없게(`extractable: false`) 만듭니다. 서버에는 공개키만 보내고(`POST /api/devices`, 그 공개키 자신의 서명 필요), 기기 ID는 서버가 공개키 지문(RFC 7638) 앞 16자리로 계산합니다.
+  - 승인(`POST /api/devices/approve`)은 버튼이 아니라 서버가 정합니다. 서버가 Supabase에 비밀번호를 다시 확인하고, 요청이 등록한 기기 키로 서명되어 있을 때만 `vault_devices.status`를 `approved`로 바꿉니다. 화면은 승인 응답만 믿지 않고 `GET /api/devices/status`로 서버에 다시 물어 `approved`일 때만 기존 자료실을 열고 메모를 부릅니다. 승인 전에는 메모 목록을 부르지도 그리지도 않습니다.
+  - 모든 보호 요청은 `aleph.device.v1\n방식\n경로\n시각\n일회용값\nSHA-256(본문)`을 기기 키로 서명해 `X-Aleph-Device/Timestamp/Nonce/Signature`로 보냅니다(`api/_device-lib.js`). 서버는 경로를 자기가 처리할 자원으로 직접 만들고 받은 본문의 해시를 다시 계산해 검증하므로, 서명 없는 요청(`device_signature_required`), 서명 뒤 경로 변경·본문 변경(`device_signature_invalid`), 60초 넘은 서명(`device_signature_expired`), 같은 서명 재전송(`device_signature_replayed`), 미승인·회수·남의 기기(`device_not_approved`·`device_revoked`·`device_not_registered`)는 모두 403입니다.
+  - 운영 심판 토큰(ES256·15분·배포 주소 대상)은 서명 없이 읽기(GET)와 검증된 사본 복구(10단계 경로)만 받습니다. 추가·수정·삭제는 심판 토큰이라도 승인된 기기 서명이 없으면 403입니다. 학생 로그인 토큰은 모든 요청에 서명이 필요합니다.
+  - 판정기(`src/decider.mjs`)의 규칙은 그대로입니다(6단계 `device_registered`가 엔진이 확인한 등록 기기만 `allow`).
+- DB: `supabase/step11_devices.sql`을 SQL Editor에서 실행합니다(공개키·상태만 저장, service_role만 select·insert·update).
+
+### 11단계 확인 절차
+
+1. 로컬: `npm run test:r11` (가상 토큰·메모리 자료·실제 WebCrypto 키로 승인 전 자료 없음, 비밀번호 없는/틀린 승인 거절, 승인 뒤 자료실 열림, 서명 없음·경로 변경·본문 변경·재전송·오래된 서명·회수 기기 거절을 확인. 실제 심판 판정 아님)
+2. 배포 화면: 로그인 → "이 기기 승인" 화면(메모 없음) → 비밀번호 다시 입력 → 서버가 승인을 확인하면 기존 자료실과 내 메모가 열림. 개발자 도구의 Application 탭에서 저장소가 비어 있는지 확인합니다.
+3. 거부되어야 할 결과: 승인 전 `/api/notes`는 403(`device_not_approved`), 서명 없는 요청은 403(`device_signature_required`).
 
 ## 10단계: 백업에서 자료실을 되살립니다
 
