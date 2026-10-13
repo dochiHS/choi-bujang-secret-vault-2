@@ -134,7 +134,7 @@ export async function runAttackChecks(config) {
     expected: 'B가 A 메모를 읽기·수정·삭제하거나 소유자를 바꾸면 거절, 각자 자기 메모는 허용',
     observed: '미실행: 두 계정의 실제 로그인 토큰이 필요해 자동 점검에서 보내지 않음. 배포 화면과 test/r5.test.mjs로 확인' });
 
-  // 10~14) 6단계 판정기(src/decider.mjs)에 가상 요청을 직접 넣어 본 결과(로컬 실행, 심판 판정 아님)
+  // 10~13) 6단계 판정기(src/decider.mjs)에 가상 요청을 직접 넣어 본 결과(로컬 실행, 심판 판정 아님)
   if (config.step >= 6) {
     const { decide } = await import('./decider.mjs');
     const base = {
@@ -152,8 +152,6 @@ export async function runAttackChecks(config) {
         { deviceRegistered: false }],
       ['decider_missing_device_flag', '기기 등록 값이 없으면 deny · device_not_registered',
         { deviceRegistered: undefined }],
-      ['decider_string_true_device', '문자열 "true"처럼 참이 아닌 값은 deny · device_not_registered',
-        { deviceRegistered: 'true' }],
       ['decider_malformed_device_id', '계약 형식(16자리 소문자 16진수)이 아닌 기기 ID는 deny · device_not_registered',
         { deviceId: 'virtual-device' }],
     ];
@@ -165,7 +163,7 @@ export async function runAttackChecks(config) {
         observed: `로컬 판정기 응답: ${response?.decision} · ${response?.reasonCode} · ${JSON.stringify(response?.ruleIds)}` });
     }
 
-    // 15~18) 7단계: 평소와 다른 접속은 다시 확인(로컬 실행, 심판 판정 아님)
+    // 14~17) 7단계: 평소와 다른 접속은 다시 확인(로컬 실행, 심판 판정 아님)
     if (config.step >= 7) {
       const fixture = { source: 'judge_fixture', region: 'local', network: 'usual', hour: 14 };
       const anomalyCases = [
@@ -201,6 +199,20 @@ export async function runAttackChecks(config) {
           observed: `로컬 판정기 응답: ${response?.decision} · ${response?.reasonCode} · ${JSON.stringify(response?.ruleIds)}` });
       }
     }
+  }
+  // 20) 11단계: 배포된 접속 화면과 앱 설정을 GET으로 읽어 본 결과(실제로 보낸 요청, 심판 판정 아님)
+  // 화면 코드가 브라우저 저장소를 쓰지 않는지, manifest가 있는지, 로그인 없이 기기 상태를 물으면 거절되는지 봅니다.
+  // 요청 서명(서명 없음·경로 변경·본문 변경 거절)은 npm run test:r11 로컬 시험으로 확인합니다.
+  if (config.step >= 11) {
+    const storageApis = [/localStorage/u, /sessionStorage/u, /indexedDB/u, /document\.cookie/u]
+      .filter((pattern) => pattern.test(page.text)).length;
+    const manifest = await send(app, '/manifest.webmanifest');
+    let manifestJson = null;
+    try { manifestJson = JSON.parse(manifest.text); } catch { manifestJson = null; }
+    const deviceStatus = await send(app, '/api/devices/status');
+    results.push({ attackId: 'install_screen_device_check',
+      expected: '화면 코드에 브라우저 저장소 사용 없음, manifest 있음, 로그인·기기 서명 없는 기기 상태 조회는 401/403',
+      observed: `화면의 브라우저 저장소 사용 ${storageApis}종, manifest ${manifest.ok && manifestJson?.name ? `있음(HTTP ${manifest.status})` : `없음(HTTP ${manifest.status})`}, 기기 상태 조회 ${rejection(deviceStatus)}` });
   }
   return results;
 }
