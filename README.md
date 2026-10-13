@@ -28,7 +28,24 @@
 | 4단계 | 통과 | API가 검증된 사용자 ID와 메모 `owner_id`를 비교(남의 메모 404, 소유자 변경 403), 메모 표에 RLS 자기 행 정책과 최소 권한 |
 | 5단계 | 통과 | 브라우저는 우리 서버 함수만 부름(로그인도 `/api/auth/*`로 이동, 화면에 Supabase 키·SDK 없음), 메모 표의 PUBLIC·anon·authenticated 직접 권한 회수, `originalApiUrl` 기록 |
 | 6단계 | 통과 | 판정기 `src/decider.mjs`에 `device_registered` 규칙: 엔진이 확인한 `deviceRegistered`가 정확히 `true`이고 `deviceId`가 16자리 소문자 16진수일 때만 `allow`, 그 밖에는 `deny`·`device_not_registered` |
-| 7단계 | 제출 | 판정기에 `step_up_required` 규칙: 믿을 수 있는 출처의 접속 정보에서 지역·시각·네트워크·최근 행동이 평소와 다르면 `step_up`, 5분 안에 다시 확인했으면 `allow`. 지역 하나로 영구 차단하지 않음 |
+| 7단계 | 통과 | 판정기에 `step_up_required` 규칙: 믿을 수 있는 출처의 접속 정보에서 지역·시각·네트워크·최근 행동이 평소와 다르면 `step_up`, 5분 안에 다시 확인했으면 `allow`. 지역 하나로 영구 차단하지 않음 |
+| 8단계 | 제출 | 메모(`note:`)와 강사 공지(`notice:`) 자원 ID 구분, 판정기 `resource_zone` 구역표(모르는 경로·쿼리 기능·`:id` 자리 기능 이름 거부, 공지 수정 거부), API의 소유자 재대조와 DB 강사 명단 확인 |
+
+## 8단계: 자료마다 갈 수 있는 구역을 나눕니다
+
+- 제작 1(자원 ID): 메모와 강사 공지를 다른 구역·다른 표로 나눴습니다. 서버가 경로를 보고 응답 머리글 `X-Resource-Id`에 `note:list`·`note:<uuid>`·`notice:list`·`notice:<uuid>`를 붙입니다(브라우저 값으로 정하지 않음). 공지 API `GET /api/notices`, `GET·PUT /api/notices/:id`를 더했고 표는 `supabase/step8_notices.sql`의 `vault_notices`입니다. 기존 메모 자료·주소는 그대로이고 화면 메뉴는 바꾸지 않았습니다.
+- 제작 2(판정기 `resource_zone`): 엔진이 확인한 메서드·경로 모양(`route`)·실제 경로(`path`)가 구역표와 정확히 맞을 때만 다음 검사로 넘어갑니다. 구역표는 메모 `GET·POST /notes`, `GET·PUT·DELETE /notes/:id`, 공지 `GET /notices`, `GET /notices/:id`입니다(`/api` 접두어는 같은 경로로 봄).
+  - 공지 추가·수정·삭제 → `deny`·`zone_forbidden`. 계약에 강사 역할 값이 없어 판정기는 누구에게도 허용하지 않습니다.
+  - 표에 없는 경로, 메서드와 경로 모양 불일치, 깊이·글자가 다른 실제 경로, `:id` 자리의 기능 이름(`export`·`admin`·`all` 등) → `route_not_allowed`. 쿼리 문자열이 있으면 `query_not_allowed`.
+  - 순서: 6단계 기기 → 8단계 구역 → 7단계 이상 접속. 판정 요청에 소유자 값이 없어 "B의 A 메모"는 아래 API가 막습니다.
+- 제작 3(API 재대조): 메모는 DB 조건(`owner_id`)과 별개로 꺼낸 행의 소유자를 검증된 사용자 ID와 다시 비교합니다. 공지 수정은 DB 강사 명단 `vault_instructors`에 검증된 사용자 ID가 있을 때만 됩니다(처음엔 비어 있어 아무도 못 고침). 화면 메뉴·요청 본문의 `role`·`isInstructor`는 읽지 않습니다. 거부 응답에 짧은 사유 `reason`(`not_owner_or_missing`·`not_instructor`·`owner_change`·`not_found`·`bad_input`)을 남깁니다.
+
+### 8단계 확인 절차
+
+1. Supabase SQL Editor에서 `supabase/step8_notices.sql`을 한 번 실행합니다(공지 표·가상 공지 1건·빈 강사 명단, 두 표 모두 anon·authenticated 권한 없음).
+2. `npm run test:r8` → B의 A 메모 직접 조회 404(`not_owner_or_missing`), 본문에 `role: instructor`를 넣은 학생의 공지 수정 403(`not_instructor`), 강사 명단 사용자의 수정 200, 자원 ID 구분을 가짜 토큰으로 확인합니다(실제 심판 판정 아님).
+3. `npm run decider:test`·`npm run fixture:7`이 그대로 통과하고, `npm run bundle`의 `decider_student_notice_edit`·`decider_function_path_in_id`가 `deny`입니다.
+4. 배포 화면: A 로그인 시 자기 메모만 보이는 것은 그대로입니다. 시크릿 창에서 토큰 없이 `/api/notices`를 열면 401입니다.
 
 ## 7단계: 평소와 다른 접속은 다시 확인합니다
 
