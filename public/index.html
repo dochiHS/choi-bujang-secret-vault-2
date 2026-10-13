@@ -4,6 +4,11 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>BYTE BACK | 점령된 자료실</title>
+  <!-- 11단계: 설치형 웹앱 설정. 설치는 화면을 앱처럼 여는 것일 뿐, 기기 확인은 서버가 따로 합니다. -->
+  <link rel="manifest" href="/manifest.webmanifest">
+  <meta name="theme-color" content="#101a28">
+  <link rel="icon" href="/icon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="/icon.svg">
   <style>
     :root { color-scheme: dark; font-family: system-ui, sans-serif; }
     body { margin: 0; min-height: 100vh; background: #101a28; color: #ecf4ff; }
@@ -31,13 +36,23 @@
     li { border: 1px solid #51667c; border-radius: 14px; padding: 17px 19px; background: #1a2a3d; }
     li strong { display: block; font-size: 18px; margin-bottom: 5px; overflow-wrap: anywhere; }
     li span { display: block; color: #bfd0e5; white-space: pre-wrap; overflow-wrap: anywhere; margin-bottom: 10px; }
+    .appbar { display: flex; flex-wrap: wrap; gap: 8px; margin: 0 0 18px; }
+    .chip { font-size: 13px; padding: 5px 10px; border-radius: 999px; border: 1px solid #51667c; color: #bfd0e5; background: #1a2a3d; }
+    .chip.ok { border-color: #4f9e80; color: #9be7c4; }
+    .chip.wait { border-color: #b39350; color: #ffe3a3; }
+    .offline { margin: 0 0 18px; padding: 12px 14px; border-radius: 12px; border: 1px solid #b39350; color: #ffe3a3; background: #4a3b1844; font-size: 15px; }
     [hidden] { display: none !important; }
   </style>
 </head>
 <body>
   <main>
-    <div class="eyebrow">BYTE BACK · 5단계 자료 요청을 서버 한곳으로 모읍니다</div>
+    <div class="eyebrow">BYTE BACK · 11단계 나만의 접속 앱</div>
     <h1>점령된 자료실</h1>
+    <div class="appbar" aria-label="앱 상태">
+      <span id="install-chip" class="chip">화면 확인 중</span>
+      <span id="device-chip" class="chip">기기: 로그인 전(확인 안 함)</span>
+    </div>
+    <p id="offline-banner" class="offline" role="status" hidden>오프라인입니다. 자료실은 서버가 로그인과 기기 승인을 확인해야 열리므로, 오프라인에서는 메모를 보여 주지 않습니다. 이 앱은 메모를 기기에 저장하지 않습니다. 연결되면 다시 시도해 주세요.</p>
     <p>로그인과 메모 읽기·추가·수정·삭제를 모두 이 사이트의 서버 함수가 맡습니다. 서버는 로그인 토큰을 확인하고, 그 메모의 주인일 때만 허용합니다. 여기에는 실제 개인정보 없이 연습용 메모만 적습니다.</p>
     <div class="notice">내 메모만 보입니다. 이 화면은 자료 저장소를 직접 부르지 않으며, 저장소의 직접 접근 권한도 닫혀 있습니다.</div>
 
@@ -52,11 +67,28 @@
       <p>로그인하지 않으면 메모를 볼 수 없습니다.</p>
     </section>
 
+    <div id="account" class="panel who" hidden>
+      <span id="who"></span>
+      <button id="logout-button" class="ghost" type="button">로그아웃</button>
+    </div>
+
+    <!-- 11단계: 기기 승인 화면. 서버가 이 기기를 승인된 기기로 확인하기 전에는 자료실(#logged-in)을 열지 않고 메모도 부르지 않습니다. -->
+    <section id="device-gate" class="panel" hidden>
+      <h2 style="margin-top:0">이 기기 승인</h2>
+      <p>이 브라우저에서 기기 키를 새로 만들어 공개키만 서버에 등록했습니다. 기기 키는 이 탭의 메모리에만 있고 저장하지 않으므로, 탭을 닫으면 다시 승인해야 합니다.</p>
+      <p>승인은 이 화면의 버튼이 아니라 서버가 정합니다. 비밀번호를 다시 입력하면 서버가 직접 확인하고, 이 기기 키로 서명된 요청일 때만 승인합니다. 앱을 설치했다는 표시만으로는 승인되지 않습니다.</p>
+      <p id="device-detail" class="msg" role="status"></p>
+      <form id="approve-form">
+        <label>비밀번호 다시 확인 <input id="approve-password" type="password" autocomplete="current-password" required></label>
+        <div class="row">
+          <button id="approve-button" type="submit">서버에 기기 승인 요청</button>
+          <button id="recheck-button" class="ghost" type="button">서버 승인 상태 다시 확인</button>
+        </div>
+      </form>
+      <p id="device-msg" class="msg" role="status"></p>
+    </section>
+
     <section id="logged-in" hidden>
-      <div class="panel who">
-        <span id="who"></span>
-        <button id="logout-button" class="ghost" type="button">로그아웃</button>
-      </div>
       <p id="session-msg" class="msg" role="status"></p>
 
       <div class="panel">
@@ -76,33 +108,73 @@
   </main>
 
   <script type="module">
-    // 5단계: 브라우저는 우리 서버 함수(/api/...)만 부릅니다.
-    // Supabase 주소·공개 키·SDK는 화면 코드에 없고, 로그인도 /api/auth/* 서버 함수가 대신합니다.
-    const STORE = 'vault-session';
+    // 5단계: 브라우저는 우리 서버 함수(/api/...)만 부릅니다. Supabase 주소·공개 키·SDK는 화면 코드에 없습니다.
+    // 11단계:
+    // - 로그인 세션과 기기 키는 이 탭의 메모리(변수)에만 둡니다. 브라우저 저장소(로컬·세션 저장소, 색인 DB, 쿠키)에 넣지 않습니다.
+    // - 기기 키는 WebCrypto ECDSA P-256으로 만들고 개인키는 내보낼 수 없게(extractable: false) 만듭니다. 서버에는 공개키만 보냅니다.
+    // - 서버가 GET /api/devices/status로 "승인됨"을 돌려준 뒤에만 자료실을 열고 메모를 부릅니다.
+    //   승인 버튼의 응답이나 설치형 앱 표시(display-mode)만으로는 자료실을 열지 않습니다.
+    // - 자료 요청마다 방식·경로·시각·일회용 값·본문 해시를 기기 키로 서명합니다. 서명 뒤 경로나 본문이 바뀌면 서버가 거절합니다.
+    const SCHEME = 'aleph.device.v1';
     const $ = (id) => document.getElementById(id);
     const loggedOut = $('logged-out');
     const loggedIn = $('logged-in');
+    const gate = $('device-gate');
     const list = $('notes');
-    let session = null;
+    const encoder = new TextEncoder();
+    let session = null;          // 메모리에만 있는 로그인 세션
+    let device = null;           // 메모리에만 있는 기기 키 { keys, id, jwk }
+    let approved = false;        // 서버가 마지막으로 확인해 준 승인 여부
+    let clockOffset = 0;         // 서버 시각과의 차이(서명 시각을 맞추는 용도)
 
     function say(el, text, kind = '') {
       el.textContent = text;
       el.className = `msg ${kind}`.trim();
     }
 
-    function saveSession(next) {
-      session = next;
-      try {
-        if (next) localStorage.setItem(STORE, JSON.stringify(next));
-        else localStorage.removeItem(STORE);
-      } catch { /* 저장이 막힌 창에서는 이 탭 안에서만 유지합니다. */ }
+    function chip(el, text, kind = '') {
+      el.textContent = text;
+      el.className = `chip ${kind}`.trim();
     }
 
-    function loadSession() {
-      try {
-        const raw = JSON.parse(localStorage.getItem(STORE) || 'null');
-        return raw && typeof raw.access_token === 'string' ? raw : null;
-      } catch { return null; }
+    // 설치형 앱 표시: 화면이 어떻게 열렸는지만 알려 줍니다. 기기 확인과는 관계없습니다.
+    function showInstallState() {
+      const standalone = window.matchMedia?.('(display-mode: standalone)').matches || navigator.standalone === true;
+      chip($('install-chip'), standalone ? '설치형 앱 화면으로 열림 · 기기 확인과 별개' : '브라우저 탭으로 열림 · 설치해도 기기 확인은 서버가 함');
+    }
+
+    function showOnline() {
+      $('offline-banner').hidden = navigator.onLine !== false;
+    }
+
+    const toHex = (buffer) => [...new Uint8Array(buffer)].map((b) => b.toString(16).padStart(2, '0')).join('');
+    const toB64url = (buffer) => btoa(String.fromCharCode(...new Uint8Array(buffer)))
+      .replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/u, '');
+    const sha256Hex = async (text) => toHex(await crypto.subtle.digest('SHA-256', encoder.encode(text)));
+
+    // 이 탭에서 쓸 기기 키를 메모리에 만듭니다. 기기 ID = 공개키 지문(RFC 7638) 앞 16자리(서버도 같은 값을 계산).
+    async function deviceKey() {
+      if (device) return device;
+      const keys = await crypto.subtle.generateKey({ name: 'ECDSA', namedCurve: 'P-256' }, false, ['sign', 'verify']);
+      const raw = await crypto.subtle.exportKey('jwk', keys.publicKey);
+      const jwk = { kty: raw.kty, crv: raw.crv, x: raw.x, y: raw.y };
+      const id = (await sha256Hex(`{"crv":"P-256","kty":"EC","x":"${jwk.x}","y":"${jwk.y}"}`)).slice(0, 16);
+      device = { keys, id, jwk };
+      return device;
+    }
+
+    async function signedHeaders(method, path, bodyText) {
+      const key = await deviceKey();
+      const timestamp = String(Date.now() + clockOffset);
+      const nonce = crypto.randomUUID().replaceAll('-', '');
+      const message = [SCHEME, method.toUpperCase(), path, timestamp, nonce, await sha256Hex(bodyText)].join('\n');
+      const signature = await crypto.subtle.sign({ name: 'ECDSA', hash: 'SHA-256' }, key.keys.privateKey, encoder.encode(message));
+      return { 'X-Aleph-Device': key.id, 'X-Aleph-Timestamp': timestamp, 'X-Aleph-Nonce': nonce, 'X-Aleph-Signature': toB64url(signature) };
+    }
+
+    function learnClock(response) {
+      const server = Date.parse(response.headers.get('Date') ?? '');
+      if (Number.isFinite(server)) clockOffset = server - Date.now();
     }
 
     async function postJson(path, body, headers = {}) {
@@ -123,33 +195,35 @@
       return `로그인 실패: ${reason}${payload?.code ? ` (${payload.code})` : ''}`;
     }
 
-    // 만료 1분 전이면 서버 함수로 토큰을 갱신합니다. 실패하면 로그아웃 상태로 돌립니다.
+    // 만료 1분 전이면 서버 함수로 토큰을 갱신합니다(메모리 안에서만). 실패하면 로그아웃 상태로 돌립니다.
     async function freshSession(force = false) {
       if (!session) return null;
       const soon = Math.floor(Date.now() / 1000) + 60;
       if (!force && session.expires_at && session.expires_at > soon) return session;
       try {
         const { response, payload } = await postJson('/api/auth/refresh', { refresh_token: session.refresh_token });
-        if (response.ok && payload?.access_token) { saveSession(payload); return session; }
+        if (response.ok && payload?.access_token) { session = payload; return session; }
       } catch { /* 아래에서 로그아웃 처리 */ }
-      saveSession(null);
       render(null);
       return null;
     }
 
-    // 서버 API 호출. 401이면 토큰을 한 번 갱신해 다시 시도합니다.
+    // 서버 API 호출: 로그인 토큰 + 기기 서명. 401이면 토큰을 한 번 갱신해 다시 시도합니다.
     async function api(path, { method = 'GET', body } = {}, retried = false) {
       const current = await freshSession();
       if (!current) throw new Error('로그인이 필요합니다.');
+      const bodyText = body === undefined ? '' : JSON.stringify(body);
       const response = await fetch(path, {
         method,
         cache: 'no-store',
         headers: {
           Authorization: `Bearer ${current.access_token}`,
-          ...(body ? { 'Content-Type': 'application/json' } : {}),
+          ...(await signedHeaders(method, path, bodyText)),
+          ...(body !== undefined ? { 'Content-Type': 'application/json' } : {}),
         },
-        body: body ? JSON.stringify(body) : undefined,
+        body: body !== undefined ? bodyText : undefined,
       });
+      learnClock(response);
       if (response.status === 401 && !retried && await freshSession(true)) {
         return api(path, { method, body }, true);
       }
@@ -160,11 +234,83 @@
         const reason = payload?.error ?? `HTTP ${response.status}`;
         const error = new Error(response.status === 401 ? `${reason} 다시 로그인해 주세요.` : reason);
         error.status = response.status;
+        error.reason = payload?.reason ?? '';
+        // 서버가 기기를 승인된 기기로 보지 않으면 자료실을 닫고 승인 화면으로 돌아갑니다.
+        if (response.status === 403 && String(error.reason).startsWith('device_')) closeVault(reason);
         throw error;
       }
       return payload;
     }
 
+    // ── 기기 승인 흐름 ──
+    // 1) 공개키 등록(승인 대기) 2) 서버에 상태 확인 3) 서버가 approved라고 할 때만 자료실 열기
+    async function registerDevice() {
+      const key = await deviceKey();
+      const body = { publicKey: key.jwk };
+      const payload = await api('/api/devices', { method: 'POST', body });
+      if (payload?.deviceId !== key.id) throw new Error('서버가 계산한 기기 ID가 다릅니다.');
+      return payload;
+    }
+
+    async function serverStatus() {
+      const payload = await api('/api/devices/status');
+      return payload?.deviceId === device?.id && payload?.registered === true && payload?.status === 'approved';
+    }
+
+    async function checkDevice() {
+      if (!session) return;
+      chip($('device-chip'), '기기: 서버 확인 중', 'wait');
+      say($('device-msg'), '서버에 이 기기의 승인 상태를 묻는 중입니다.');
+      try {
+        if (!device) await registerDevice();
+        say($('device-detail'), `이 기기 ID(공개키 지문): ${device.id}`);
+        if (await serverStatus()) return openVault();
+        closeVault('서버 기준으로 아직 승인되지 않은 기기입니다. 비밀번호를 다시 확인해 승인을 요청해 주세요.');
+      } catch (error) {
+        closeVault(`기기 확인 실패: ${error.message}`);
+      }
+    }
+
+    function openVault() {
+      approved = true;
+      chip($('device-chip'), '기기: 서버가 승인 확인함', 'ok');
+      gate.hidden = true;
+      loggedIn.hidden = false;
+      say($('device-msg'), '');
+      loadNotes();
+    }
+
+    // 승인 전·승인이 풀린 뒤에는 자료 목록을 비우고 자료실을 숨깁니다.
+    function closeVault(message = '') {
+      approved = false;
+      list.replaceChildren();
+      loggedIn.hidden = true;
+      gate.hidden = !session;
+      chip($('device-chip'), session ? '기기: 승인 대기(서버 기준)' : '기기: 로그인 전(확인 안 함)', session ? 'wait' : '');
+      if (message) say($('device-msg'), message, 'error');
+    }
+
+    $('approve-form').addEventListener('submit', async (event) => {
+      event.preventDefault();
+      const button = $('approve-button');
+      button.disabled = true;
+      say($('device-msg'), '서버가 비밀번호와 기기 서명을 확인하는 중입니다.');
+      try {
+        if (!device) await registerDevice();
+        await api('/api/devices/approve', { method: 'POST', body: { password: $('approve-password').value } });
+        $('approve-password').value = '';
+        // 승인 응답만 믿지 않고, 서버에 상태를 다시 물어 approved일 때만 엽니다.
+        if (await serverStatus()) openVault();
+        else closeVault('서버가 아직 이 기기를 승인된 기기로 확인하지 않았습니다.');
+      } catch (error) {
+        $('approve-password').value = '';
+        say($('device-msg'), `승인 실패: ${error.message}`, 'error');
+      } finally {
+        button.disabled = false;
+      }
+    });
+
+    $('recheck-button').addEventListener('click', () => { checkDevice(); });
 
     function noteItem(note) {
       const item = document.createElement('li');
@@ -239,9 +385,12 @@
       return item;
     }
 
+    // 서버가 승인을 확인한 뒤에만 부릅니다.
     async function loadNotes() {
+      if (!approved) { list.replaceChildren(); return; }
       try {
         const notes = await api('/api/notes');
+        if (!approved) { list.replaceChildren(); return; }
         if (!Array.isArray(notes)) throw new Error('자료 형식이 맞지 않습니다.');
         if (!notes.length) {
           const empty = document.createElement('li');
@@ -261,13 +410,16 @@
       session = nextSession;
       $('boot-msg').hidden = true;
       loggedOut.hidden = Boolean(session);
-      loggedIn.hidden = !session;
+      $('account').hidden = !session;
       if (session) {
         $('who').textContent = `${session.user?.email ?? '로그인한 사용자'} 로 로그인됨`;
-        loadNotes();
+        closeVault();
+        checkDevice();
       } else {
-        list.replaceChildren();
+        device = null;           // 로그아웃하면 메모리의 기기 키도 버립니다.
+        closeVault();
         say($('session-msg'), '');
+        say($('device-detail'), '');
       }
     }
 
@@ -282,21 +434,20 @@
           email: $('email').value.trim(),
           password: $('password').value,
         });
+        if (result.response) learnClock(result.response);
       } catch { /* 네트워크 오류는 아래 문구로 */ }
       button.disabled = false;
+      $('password').value = '';
       if (!result.response?.ok || !result.payload?.access_token) {
         say($('login-msg'), loginReason(result.response, result.payload), 'error');
         return;
       }
-      $('password').value = '';
       say($('login-msg'), '');
-      saveSession(result.payload);
-      render(session);
+      render(result.payload);
     });
 
     $('logout-button').addEventListener('click', async () => {
       const token = session?.access_token;
-      saveSession(null);
       render(null);
       say($('login-msg'), '로그아웃했습니다.', 'ok');
       if (token) {
@@ -322,10 +473,17 @@
       }
     });
 
-    // 처음 열 때: 저장된 세션이 있으면 갱신 여부를 확인하고 화면을 그립니다.
-    session = loadSession();
-    if (session) freshSession().then((s) => render(s));
-    else render(null);
+    // 처음 열 때: 세션을 어디에도 저장하지 않으므로 항상 로그인 화면부터 시작합니다.
+    showInstallState();
+    showOnline();
+    window.addEventListener('online', showOnline);
+    window.addEventListener('offline', showOnline);
+    window.matchMedia?.('(display-mode: standalone)').addEventListener?.('change', showInstallState);
+    render(null);
+    if (!window.isSecureContext || !crypto?.subtle) {
+      $('boot-msg').hidden = false;
+      say($('boot-msg'), '이 브라우저에서는 기기 키를 만들 수 없어 자료실을 열 수 없습니다.', 'error');
+    }
   </script>
 </body>
 </html>
