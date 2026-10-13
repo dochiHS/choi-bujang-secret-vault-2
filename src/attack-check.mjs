@@ -164,6 +164,28 @@ export async function runAttackChecks(config) {
       results.push({ attackId, expected,
         observed: `로컬 판정기 응답: ${response?.decision} · ${response?.reasonCode} · ${JSON.stringify(response?.ruleIds)}` });
     }
+
+    // 15~18) 7단계: 평소와 다른 접속은 다시 확인(로컬 실행, 심판 판정 아님)
+    if (config.step >= 7) {
+      const fixture = { source: 'judge_fixture', region: 'local', network: 'usual', hour: 14 };
+      const anomalyCases = [
+        ['decider_normal_fixture_signal', '평소 지역·시각·네트워크의 가상 사건은 allow',
+          { signals: fixture }],
+        ['decider_compound_anomaly', '다른 지역·새벽·낯선 네트워크·대량 사건은 step_up · step_up_required',
+          { signals: { ...fixture, region: 'foreign', network: 'unusual', hour: 3 },
+            recentEvents: [{ kind: 'risk_signal', ageSeconds: 60, count: 20 }] }],
+        ['decider_forged_client_signal', '출처를 믿을 수 없는 접속 정보(클라이언트 헤더)는 정상으로 승격되지 않고 step_up',
+          { signals: { ...fixture, source: 'client_header' } }],
+        ['decider_fresh_step_up', '같은 복합 이상 사건도 60초 전에 다시 확인했으면 allow',
+          { signals: { ...fixture, region: 'foreign', network: 'unusual', hour: 3 },
+            stepUp: { verified: true, authAgeSeconds: 60 } }],
+      ];
+      for (const [attackId, expected, change] of anomalyCases) {
+        const response = await decide({ ...base, ...change, requestId: randomUUID() });
+        results.push({ attackId, expected,
+          observed: `로컬 판정기 응답: ${response?.decision} · ${response?.reasonCode} · ${JSON.stringify(response?.ruleIds)}` });
+      }
+    }
   }
   return results;
 }
