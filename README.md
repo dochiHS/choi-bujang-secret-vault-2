@@ -29,7 +29,15 @@
 | 5단계 | 통과 | 브라우저는 우리 서버 함수만 부름(로그인도 `/api/auth/*`로 이동, 화면에 Supabase 키·SDK 없음), 메모 표의 PUBLIC·anon·authenticated 직접 권한 회수, `originalApiUrl` 기록 |
 | 6단계 | 통과 | 판정기 `src/decider.mjs`에 `device_registered` 규칙: 엔진이 확인한 `deviceRegistered`가 정확히 `true`이고 `deviceId`가 16자리 소문자 16진수일 때만 `allow`, 그 밖에는 `deny`·`device_not_registered` |
 | 7단계 | 통과 | 판정기에 `step_up_required` 규칙: 믿을 수 있는 출처의 접속 정보에서 지역·시각·네트워크·최근 행동이 평소와 다르면 `step_up`, 5분 안에 다시 확인했으면 `allow`. 지역 하나로 영구 차단하지 않음 |
-| 8단계 | 제출 | 메모(`note:`)와 강사 공지(`notice:`) 자원 ID 구분, 판정기 `resource_zone` 구역표(모르는 경로·쿼리 기능·`:id` 자리 기능 이름 거부, 공지 수정 거부), API의 소유자 재대조와 DB 강사 명단 확인 |
+| 8단계 | 통과 | 판정기 `zone_access` 기본 거부: 메모 구역 자료 한 건(`/notes/:id`) 읽기·수정은 엔진이 확인한 사용자 본인 메모로 확인될 때만 허용, 목록·추가·삭제·모르는 경로·쿼리 기능·학생의 공지 수정은 `deny`·`zone_access_denied`. API는 소유자·구역 재대조 |
+| 9단계 | 제출 | 탐지기 `src/detect.mjs`: 같은 신원의 `GET`이 어느 10분 구간에서든 120건을 넘으면(네트워크 정보가 있으면 낯선 네트워크와 함께일 때만) `propose_revocation`·`burst_read` 제안, 그 밖에는 `observe` |
+
+## 9단계: 도플갱어를 찾고 권한을 거둡니다
+
+- 제작 1: `detect(events)`는 사건에서 가명 사용자(`identity.sub`)·기기 ID·요청 종류(`method`)·시각(`at`)·판정·네트워크만 꺼냅니다. 모양이 틀린 사건은 세지 않고, 메모 내용·토큰·실명은 읽거나 남기지 않습니다.
+- 제작 2: 신원별 `GET`만 모아 어느 10분 구간에서든 120건을 넘는지 봅니다(정확히 120건은 제외, 다른 사용자 사건은 합치지 않음). 사건에 네트워크 정보가 있으면 그 구간에 평소와 다른 네트워크가 함께 있을 때만 의심입니다. 지역 하나로는 확정하지 않습니다.
+- 제작 3: 의심이면 `{ action: 'propose_revocation', reasonCode: 'burst_read', subject }`(확인된 기기가 하나면 `deviceId` 포함), 아니면 `{ action: 'observe' }`. 회수 API를 부르거나 기기 권한을 바꾸지 않습니다. 판정기 응답 형식은 그대로입니다.
+- 확인: `npm run detect:test` 6건 통과(가상 사건 연습, 심판 판정 아님).
 
 ## 8단계: 자료마다 갈 수 있는 구역을 나눕니다
 
