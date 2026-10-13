@@ -84,3 +84,29 @@ test('stage 8 DB adapter drops rows whose stored owner differs', async () => {
   assert.deepEqual(await notes.listByOwner(USER_A), [{ id: NOTE, title: 'A', body: 'a' }]);
   assert.equal(await notes.getOwned(NOTICE, USER_A), null);
 });
+
+test('stage 8 handler re-check: a DB that hands back another owner\'s row still leaks nothing', async () => {
+  const leaky = () => ({
+    verify: async (h) => ({ 'Bearer a.a.a': { kind: 'student', userId: USER_A },
+      'Bearer b.b.b': { kind: 'student', userId: USER_B } })[h] ?? null,
+    newId: () => NOTE,
+    // 일부러 소유자 조건을 무시하고 A의 행을 그대로 돌려주는 DB
+    notes: {
+      listByOwner: async () => [{ id: NOTE, owner_id: USER_A, title: 'A 메모', body: 'a' }],
+      getOwned: async () => ({ id: NOTE, owner_id: USER_A, title: 'A 메모', body: 'a' }),
+      updateOwned: async () => ({ id: NOTE, owner_id: USER_A, title: 'x', body: 'x' }),
+      removeOwned: async () => false,
+    },
+    notices: { list: async () => [], get: async () => null, isInstructor: async () => false, update: async () => null },
+  });
+  const bGet = await call(createItemHandler(leaky), { token: 'b.b.b', id: NOTE });
+  assert.equal(bGet.statusCode, 404);
+  assert.equal(bGet.payload.reason, 'not_owner_or_missing');
+  assert.deepEqual((await call(createCollectionHandler(leaky), { token: 'b.b.b' })).payload, []);
+  assert.equal((await call(createItemHandler(leaky), { method: 'PUT', token: 'b.b.b', id: NOTE,
+    body: { title: 't', body: 'b' } })).statusCode, 404);
+  // A 본인은 그대로 읽히고, 응답에 소유자 값은 없습니다.
+  const aGet = await call(createItemHandler(leaky), { id: NOTE });
+  assert.equal(aGet.statusCode, 200);
+  assert.deepEqual(aGet.payload, { id: NOTE, title: 'A 메모', body: 'a' });
+});
