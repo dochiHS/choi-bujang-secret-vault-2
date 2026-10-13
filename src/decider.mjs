@@ -10,7 +10,7 @@
 // 추가 본인 확인(step_up)을 요구합니다. 지역 하나만으로 영구 차단(deny)하지 않습니다.
 // 최근(STEP_UP_FRESH_SECONDS 이내)에 다시 확인을 마친 요청만 허용합니다.
 //
-// 8단계 resource_zone: 엔진이 확인한 메서드·경로 모양(route)·실제 경로(path)가 아래 구역표와
+// 8단계 zone_access: 엔진이 확인한 메서드·경로 모양(route)·실제 경로(path)가 아래 구역표와
 // 정확히 맞을 때만 다음 검사로 넘어갑니다. 표에 없는 경로, 쿼리로 기능을 고르는 요청,
 // :id 자리에 export 같은 기능 이름을 넣은 요청은 거부합니다(기본 거부).
 // 강사 공지 수정은 계약에 강사 역할 값이 없으므로(docs/DECIDER_REQUEST.md) 누구에게도 허용하지 않습니다.
@@ -19,7 +19,7 @@
 // - 메모 구역은 service가 notes일 때만, 공지 구역은 notices일 때만 받습니다(서로 다른 구역).
 // - 메모 :id 자리가 다른 사용자를 가리키면(요청자와 같은 형식의 다른 주체 ID) not_own_resource로 거부합니다.
 // 소유자 최종 대조는 자료 API(api/_notes-lib.js)가 한 번 더 합니다.
-export const RULE_IDS = Object.freeze(['device_registered', 'step_up_required', 'resource_zone']);
+export const RULE_IDS = Object.freeze(['device_registered', 'step_up_required', 'zone_access']);
 
 const DEVICE_ID = /^[0-9a-f]{16}$/u;
 
@@ -205,7 +205,7 @@ export async function decide(request) {
 
   // 8단계: 구역표에 맞는 메서드·경로만
   const zoneProblem = zoneCheck(request);
-  if (zoneProblem) return respond(request, 'deny', zoneProblem, 'resource_zone');
+  if (zoneProblem) return respond(request, 'deny', 'zone_access_denied', 'zone_access');
 
   // 7단계: 평소와 다른 접속은 다시 확인
   const anomalies = [...signalAnomalies(request.signals), ...eventAnomalies(request.recentEvents)];
@@ -214,6 +214,6 @@ export async function decide(request) {
   }
   // 허용: 통과한 규칙 이름을 모두 적습니다.
   return respond(request, 'allow', 'approved', anomalies.length > 0
-    ? ['device_registered', 'resource_zone', 'step_up_required']
-    : ['device_registered', 'resource_zone']);
+    ? ['device_registered', 'zone_access', 'step_up_required']
+    : ['device_registered', 'zone_access']);
 }
