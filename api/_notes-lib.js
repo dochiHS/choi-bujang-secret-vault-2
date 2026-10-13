@@ -202,13 +202,32 @@ function noticeRow(row, requestedId) {
 const publicNotice = row => ({ id: row.id, title: row.title, body: row.body, updatedAt: row.updatedAt });
 const publicNote = row => ({ id: row.id, title: row.title, body: row.body });
 
+// 진단 기록: 토큰 원문은 남기지 않고 발급자 주소·대상·판정 결과만 남깁니다.
+function tokenHint(authorization) {
+  const match = /^Bearer ([A-Za-z0-9_-]+)\.([A-Za-z0-9_-]+)\.[A-Za-z0-9_-]+$/u.exec(authorization ?? '');
+  if (!match) return { bearer: Boolean(authorization) };
+  try {
+    const claims = JSON.parse(Buffer.from(match[2], 'base64url').toString('utf8'));
+    return { bearer: true, iss: typeof claims.iss === 'string' ? claims.iss.slice(0, 80) : null,
+      aud: typeof claims.aud === 'string' ? claims.aud.slice(0, 80) : null,
+      role: claims.aleph_role ?? null, identity: claims.aleph_identity ?? null };
+  } catch { return { bearer: true, iss: 'unreadable' }; }
+}
+
 // 로그인 확인. 토큰이 없거나 검증에 실패하면 자료 없이 401을 돌려줍니다.
 async function authenticate(req, res, deps) {
   let user = null;
+  let failure = null;
   try {
     user = await deps.verify(req.headers?.authorization);
-  } catch {
+  } catch (error) {
     user = null;
+    failure = error?.code ?? error?.name ?? 'error';
+  }
+  if (req.headers?.authorization) {
+    console.log(JSON.stringify({ tag: 'aleph_auth', method: req.method, url: String(req.url ?? '').slice(0, 120),
+      ok: Boolean(user), kind: user?.kind ?? null, identity: user?.identity ?? null, failure,
+      ...tokenHint(req.headers.authorization) }));
   }
   if (!user || typeof user.userId !== 'string' || !UUID.test(user.userId)) {
     res.setHeader('WWW-Authenticate', 'Bearer');
