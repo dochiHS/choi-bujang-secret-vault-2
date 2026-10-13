@@ -1,5 +1,5 @@
 {
-  "step": 9,
+  "step": 10,
   "repoUrl": "https://github.com/dochihs/choi-bujang-secret-vault-2",
   "publicAppUrl": "https://choi-bujang-secret-vault-2-omega.vercel.app/",
   "sampleMarker": "SAMPLE_NOTE_1",
@@ -15,6 +15,7 @@
     "GET /api/notes/:id",
     "PUT /api/notes/:id",
     "DELETE /api/notes/:id",
+    "POST /api/notes/:id/restore",
     "GET /api/notices",
     "GET /api/notices/:id",
     "PUT /api/notices/:id",
@@ -23,5 +24,5 @@
     "POST /api/auth/logout"
   ],
   "originalApiUrl": "https://krdfqgaagoozlgdnsbww.supabase.co/rest/v1/vault_notes",
-  "restoreRoute": null
+  "restoreRoute": "POST /api/notes/:id/restore"
 }
