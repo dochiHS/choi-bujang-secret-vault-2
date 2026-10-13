@@ -110,3 +110,31 @@ test('stage 8 handler re-check: a DB that hands back another owner\'s row still 
   assert.equal(aGet.statusCode, 200);
   assert.deepEqual(aGet.payload, { id: NOTE, title: 'A 메모', body: 'a' });
 });
+
+test('stage 8 zones in the API: a memo never comes out of the notice route, and vice versa', async () => {
+  const mixed = () => ({
+    verify: async (h) => ({ 'Bearer a.a.a': { kind: 'student', userId: USER_A },
+      'Bearer b.b.b': { kind: 'student', userId: USER_B } })[h] ?? null,
+    newId: () => NOTE,
+    notes: {
+      listByOwner: async () => [{ id: NOTICE, kind: 'notice', title: '공지', body: 'n' }],
+      // 메모 경로로 공지 행이나 다른 ID의 행을 돌려주는 DB
+      getOwned: async (id) => (id === NOTICE ? { id: NOTICE, kind: 'notice', title: '공지', body: 'n' }
+        : { id: '77777777-7777-4777-8777-777777777777', title: '다른 메모', body: 'x' }),
+    },
+    notices: {
+      // 공지 경로로 A의 메모 행을 돌려주는 DB
+      list: async () => [{ id: NOTE, owner_id: USER_A, title: 'A 메모', body: 'a' },
+        { id: NOTICE, title: '공지', body: 'n', updatedAt: 't' }],
+      get: async () => ({ id: NOTE, owner_id: USER_A, title: 'A 메모', body: 'a' }),
+    },
+  });
+  // B가 공지 경로로 A의 메모 번호를 조회해도 404
+  assert.equal((await call(createNoticeItemHandler(mixed), { token: 'b.b.b', id: NOTE })).statusCode, 404);
+  // 공지 목록에 개인 메모가 섞여 오면 빼고 공지만
+  assert.deepEqual((await call(createNoticeCollectionHandler(mixed), { token: 'b.b.b' })).payload.map(n => n.id), [NOTICE]);
+  // 메모 경로로 공지 행이 오면 404, 요청과 다른 ID의 행이 오면 404
+  assert.equal((await call(createItemHandler(mixed), { id: NOTICE })).statusCode, 404);
+  assert.equal((await call(createItemHandler(mixed), { id: NOTE })).statusCode, 404);
+  assert.deepEqual((await call(createCollectionHandler(mixed))).payload, []);
+});
