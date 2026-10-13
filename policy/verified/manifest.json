@@ -1,0 +1,24 @@
+{
+  "version": "8단계 통과 판정기(676982d) 기준 안전 정책",
+  "verifiedAt": "2026-10-13",
+  "deciderSha256": "7a91609729a685499a73359dea090e481d998b3f0e870ae2478e041db81ce89f",
+  "ruleIds": [
+    "device_registered",
+    "step_up_required",
+    "zone_access"
+  ],
+  "allowedRoutes": [
+    "GET /api/notes",
+    "POST /api/notes",
+    "GET /api/notes/:id",
+    "PUT /api/notes/:id",
+    "DELETE /api/notes/:id",
+    "POST /api/notes/:id/restore",
+    "GET /api/notices",
+    "GET /api/notices/:id",
+    "PUT /api/notices/:id",
+    "POST /api/auth/login",
+    "POST /api/auth/refresh",
+    "POST /api/auth/logout"
+  ]
+}
