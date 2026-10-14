@@ -172,6 +172,12 @@ export function supabaseDevices(db) {
       }
       return data;
     },
+    // 12단계 작전실: 본인 기기 상태만(공개키는 돌려주지 않음)
+    async listByOwner(ownerId) {
+      const { data, error } = await table().select('device_id, status').eq('owner_id', ownerId);
+      if (error) throw error;
+      return Array.isArray(data) ? data : [];
+    },
     async approve({ deviceId, ownerId, now }) {
       const { data, error } = await table().update({ status: 'approved', approved_at: now })
         .eq('device_id', deviceId).eq('owner_id', ownerId).in('status', ['pending', 'approved'])

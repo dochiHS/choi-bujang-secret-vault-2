@@ -4,6 +4,8 @@ import { createClient } from '@supabase/supabase-js';
 import { createLoginVerifier } from '../src/verify-login.mjs';
 import { defaultAuthClient } from './_auth-lib.js';
 import { createDeviceGate, deviceIdOf, publicJwk, supabaseDevices } from './_device-lib.js';
+import { RULE_IDS } from '../src/decider.mjs';
+import { detect } from '../src/detect.mjs';
 
 // 공통: 로그인 토큰 검사 + 가상 메모 추가·읽기·수정·삭제.
 // 파일 이름이 _로 시작하므로 Vercel은 이 파일을 공개 경로로 만들지 않습니다.
@@ -51,7 +53,9 @@ export function defaultDeps() {
   cached = { verify, notes: supabaseNotes(db), notices: supabaseNotices(db),
     backups: supabaseBackups(db), newId: randomUUID, now: () => new Date().toISOString(),
     // 11단계: 기기 명단·요청 서명 확인·비밀번호 재확인(승인용)
-    devices, deviceGate: createDeviceGate({ devices }), confirmPassword: supabasePasswordCheck(db) };
+    devices, deviceGate: createDeviceGate({ devices }), confirmPassword: supabasePasswordCheck(db),
+    // 12단계: 가린 서버 기록(요청 기록)
+    requestLog: supabaseRequestLog(db) };
   return cached;
 }
 
@@ -145,6 +149,47 @@ export function supabaseBackups(db) {
     async audit(entry) {
       const { error } = await db.from('vault_audit_log').insert(entry);
       if (error) throw error;
+    },
+    // 12단계 작전실: 본인 사본 수·마지막 사본 시각(제목·본문은 읽지 않음)
+    async summary(ownerId) {
+      const { data, error } = await backups().select('backed_up_at').eq('owner_id', ownerId)
+        .order('backed_up_at', { ascending: false });
+      if (error) throw error;
+      const rows = Array.isArray(data) ? data : [];
+      return { count: rows.length, lastBackupAt: rows[0]?.backed_up_at ?? null };
+    },
+    // 12단계 작전실: 본인이 한 복구 감사 기록(시각·이전 상태·지문만)
+    async restoresBy(actorId, limit = 20) {
+      const { data, error } = await db.from('vault_audit_log').select('at, action, previous_state, content_sha256')
+        .eq('actor_id', actorId).eq('action', 'restore_note').order('at', { ascending: false }).limit(limit);
+      if (error) throw error;
+      return Array.isArray(data) ? data : [];
+    },
+  };
+}
+
+// 12단계: 가린 서버 기록(vault_request_log). 추가·읽기만 합니다.
+const LOG_COLUMNS = 'request_id, at, method, route, status, reason, actor_hash, token_kind, device_id, run_id';
+export function supabaseRequestLog(db) {
+  const table = () => db.from('vault_request_log');
+  return {
+    async record(entry) {
+      const { error } = await table().insert(entry);
+      if (error) throw error;
+    },
+    async forActor(hash, limit = 100) {
+      const { data, error } = await table().select(LOG_COLUMNS).eq('actor_hash', hash)
+        .order('at', { ascending: false }).limit(limit);
+      if (error) throw error;
+      return Array.isArray(data) ? data : [];
+    },
+    // 본인이 시작한 점검 회차의 비로그인 요청(공격 흉내)만
+    async anonymousForRuns(runIds, limit = 100) {
+      if (!runIds.length) return [];
+      const { data, error } = await table().select(LOG_COLUMNS).in('run_id', runIds).is('actor_hash', null)
+        .order('at', { ascending: false }).limit(limit);
+      if (error) throw error;
+      return Array.isArray(data) ? data : [];
     },
   };
 }
@@ -285,7 +330,7 @@ async function authenticate(req, res, deps, path, device = {}) {
   }
   if (!user || typeof user.userId !== 'string' || !UUID.test(user.userId)) {
     res.setHeader('WWW-Authenticate', 'Bearer');
-    send(res, 401, { error: '로그인이 필요합니다.' });
+    send(res, 401, { error: '로그인이 필요합니다.', reason: 'login_failed' });
     return null;
   }
   let proof;
@@ -297,9 +342,11 @@ async function authenticate(req, res, deps, path, device = {}) {
     proof = { ok: false, status: 403, reason: 'device_check_failed', message: '기기 확인에 실패했습니다.' };
   }
   if (!proof?.ok) {
+    req.alephActor = { kind: user.kind, userId: user.userId, deviceId: null };
     send(res, proof?.status ?? 403, { error: proof?.message ?? '기기 확인에 실패했습니다.', reason: proof?.reason ?? 'device_check_failed' });
     return null;
   }
+  req.alephActor = { kind: user.kind, userId: user.userId, deviceId: proof.deviceId ?? null };
   return { ...user, deviceId: proof.deviceId ?? null };
 }
 
@@ -308,26 +355,64 @@ const pathPart = (value) => (typeof value === 'string' ? value : '');
 // 심판 토큰의 서명 없는 요청은 읽기(GET)만 받습니다. 바꾸는 요청은 누구든 승인된 기기 서명이 필요합니다.
 const readOnly = (req) => ({ judgeUnsigned: req.method === 'GET' });
 
-function withDeps(handler, getDeps) {
+// 12단계: 모든 자료 API 요청에 요청 ID(X-Request-Id)를 붙이고, 결과를 가린 서버 기록(vault_request_log)에 한 줄 남깁니다.
+// 남기는 것: 요청 ID·시각·메서드·경로 모양·상태 코드·거부 사유·가린 주체(SHA-256 앞 16자리)·토큰 종류·기기 ID·점검 회차 ID.
+// 남기지 않는 것: 토큰, 비밀번호, 메모 제목·본문, 실제 사용자 번호, 메모 ID 원문.
+const RUN_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/u;
+export const actorHash = (userId) => createHash('sha256').update(`aleph.actor:${String(userId).toLowerCase()}`, 'utf8').digest('hex').slice(0, 16);
+
+function withDeps(handler, getDeps, route = 'unknown') {
   return async function notesHandler(req, res) {
-    // 토큰 모양이 아예 없으면 서버 설정과 상관없이 바로 401(JSON)로 거절합니다.
-    if (['GET', 'POST', 'PUT', 'DELETE'].includes(req.method)
-        && !/^Bearer \S+$/u.test(req.headers?.authorization ?? '')) {
-      res.setHeader('WWW-Authenticate', 'Bearer');
-      return send(res, 401, { error: '로그인이 필요합니다.' });
+    const requestId = randomUUID();
+    res.setHeader('X-Request-Id', requestId);
+    let captured;
+    if (typeof res.json === 'function') {
+      const json = res.json.bind(res);
+      res.json = (value) => { captured = value; return json(value); };
     }
-    let deps;
+    let deps = null;
+    let depsError = false;
+    try { deps = getDeps(); } catch { depsError = true; }
     try {
-      deps = getDeps();
-    } catch {
-      console.error('notes: 서버 환경변수 또는 로그인 설정을 확인하세요.');
-      return send(res, 500, { error: '서버 설정이 아직 끝나지 않았습니다.' });
-    }
-    try {
-      return await handler(req, res, deps);
-    } catch (error) {
-      console.error('notes: 자료 처리 중 오류', error?.code ?? 'unknown');
-      return send(res, 502, { error: '자료를 처리하지 못했습니다.' });
+      // 토큰 모양이 아예 없으면 서버 설정과 상관없이 바로 401(JSON)로 거절합니다.
+      if (['GET', 'POST', 'PUT', 'DELETE'].includes(req.method)
+          && !/^Bearer \S+$/u.test(req.headers?.authorization ?? '')) {
+        res.setHeader('WWW-Authenticate', 'Bearer');
+        return send(res, 401, { error: '로그인이 필요합니다.', reason: 'login_required' });
+      }
+      if (depsError) {
+        console.error('notes: 서버 환경변수 또는 로그인 설정을 확인하세요.');
+        return send(res, 500, { error: '서버 설정이 아직 끝나지 않았습니다.' });
+      }
+      try {
+        return await handler(req, res, deps);
+      } catch (error) {
+        console.error('notes: 자료 처리 중 오류', error?.code ?? 'unknown');
+        return send(res, 502, { error: '자료를 처리하지 못했습니다.' });
+      }
+    } finally {
+      if (deps?.requestLog) {
+        const actor = req.alephActor ?? null;
+        const runHeader = req.headers?.['x-aleph-check'];
+        const status = Number(res.statusCode) || 0;
+        try {
+          await deps.requestLog.record({
+            request_id: requestId,
+            at: new Date().toISOString(),
+            method: String(req.method ?? '').toUpperCase().slice(0, 10),
+            route,
+            status,
+            reason: typeof captured?.reason === 'string' ? captured.reason.slice(0, 60)
+              : (status >= 400 ? `http_${status}` : null),
+            actor_hash: actor ? actorHash(actor.userId) : null,
+            token_kind: actor?.kind ?? null,
+            device_id: actor?.deviceId ?? null,
+            run_id: typeof runHeader === 'string' && RUN_ID.test(runHeader) ? runHeader : null,
+          });
+        } catch (error) {
+          console.error('notes: 요청 기록 실패', error?.code ?? 'unknown');
+        }
+      }
     }
   };
 }
@@ -371,7 +456,7 @@ export function createCollectionHandler(getDeps = defaultDeps) {
       }
     }
     return send(res, 201, { id });
-  }, getDeps);
+  }, getDeps, '/api/notes');
 }
 
 // /api/notes/:id — GET 한 건, PUT 수정, DELETE 삭제
@@ -409,7 +494,7 @@ export function createItemHandler(getDeps = defaultDeps) {
     }
     const removed = await deps.notes.removeOwned(id, user.userId);
     return removed ? send(res, 204) : send(res, 404, { error: '메모를 찾을 수 없습니다.', reason: 'not_owner_or_missing' });
-  }, getDeps);
+  }, getDeps, '/api/notes/:id');
 }
 
 // 8단계 /api/notices — GET 공지 목록(로그인한 사용자 누구나 읽기)
@@ -424,7 +509,7 @@ export function createNoticeCollectionHandler(getDeps = defaultDeps) {
     res.setHeader('X-Resource-Id', resourceId('notice'));
     const rows = await deps.notices.list();
     return send(res, 200, (Array.isArray(rows) ? rows : []).filter(row => noticeRow(row)).map(publicNotice));
-  }, getDeps);
+  }, getDeps, '/api/notices');
 }
 
 // 8단계 /api/notices/:id — GET 공지 한 건(로그인한 누구나), PUT 수정(DB 강사 명단에 있는 사용자만)
@@ -455,7 +540,7 @@ export function createNoticeItemHandler(getDeps = defaultDeps) {
     if (input.error) return send(res, 400, { error: input.error, reason: 'bad_input' });
     const notice = await deps.notices.update(id, { title: input.title, body: input.body });
     return noticeRow(notice, id) ? send(res, 200, publicNotice(notice)) : send(res, 404, { error: '공지를 찾을 수 없습니다.', reason: 'not_found' });
-  }, getDeps);
+  }, getDeps, '/api/notices/:id');
 }
 
 // 10단계 POST /api/notes/:id/restore — 검증된 사본에서 본인 메모 한 건만 되살립니다.
@@ -500,7 +585,7 @@ export function createRestoreHandler(getDeps = defaultDeps) {
       at: deps.now ? deps.now() : new Date().toISOString() });
     return send(res, 200, { id, owner: 'self', restored: current.exists ? 'reverted' : 'recreated',
       contentSha256: expected, note: publicNote(restored) });
-  }, getDeps);
+  }, getDeps, '/api/notes/:id/restore');
 }
 
 // ── 11단계: 기기 등록·승인·상태 ─────────────────────────────────────────────
@@ -525,7 +610,7 @@ export function createDeviceRegisterHandler(getDeps = defaultDeps) {
       now: deps.now ? deps.now() : new Date().toISOString() });
     if (row === 'conflict' || !row) return send(res, 409, { error: '이 기기 키는 쓸 수 없습니다.', reason: 'device_conflict' });
     return send(res, 200, deviceView(row));
-  }, getDeps);
+  }, getDeps, '/api/devices');
 }
 
 export function createDeviceApproveHandler(getDeps = defaultDeps) {
@@ -549,7 +634,7 @@ export function createDeviceApproveHandler(getDeps = defaultDeps) {
       now: deps.now ? deps.now() : new Date().toISOString() });
     if (!row) return send(res, 403, { error: '이 기기는 승인할 수 없습니다.', reason: 'device_not_approvable' });
     return send(res, 200, deviceView(row));
-  }, getDeps);
+  }, getDeps, '/api/devices/approve');
 }
 
 export function createDeviceStatusHandler(getDeps = defaultDeps) {
@@ -563,5 +648,90 @@ export function createDeviceStatusHandler(getDeps = defaultDeps) {
     const row = await deps.devices.get(user.deviceId);
     if (!row) return send(res, 403, { error: '등록되지 않은 기기입니다.', reason: 'device_not_registered' });
     return send(res, 200, deviceView(row));
-  }, getDeps);
+  }, getDeps, '/api/devices/status');
+}
+
+// ── 12단계: 탈환 작전실 요약 GET /api/ops/summary ─────────────────────────────
+// 로그인한 본인의 가린 서버 기록만 읽어 판정기 규칙·탐지 결과·회수(기기) 상태·복구 기록을 요약합니다.
+// 메모 제목·본문, 토큰, 실제 사용자 번호는 응답에 넣지 않습니다. 수치(counts)는 같은 응답의 records에서 계산합니다.
+function readText(relative) {
+  try { return readFileSync(new URL(relative, import.meta.url), 'utf8'); } catch { return null; }
+}
+
+export function opsCounts(records) {
+  const counts = { total: records.length, allowed: 0, denied: 0, serverError: 0, byStatus: {}, byReason: {} };
+  for (const row of records) {
+    const status = Number(row.status) || 0;
+    if (status >= 200 && status < 400) counts.allowed += 1;
+    else if (status >= 400 && status < 500) counts.denied += 1;
+    else counts.serverError += 1;
+    counts.byStatus[status] = (counts.byStatus[status] ?? 0) + 1;
+    if (row.reason) counts.byReason[row.reason] = (counts.byReason[row.reason] ?? 0) + 1;
+  }
+  return counts;
+}
+
+export function policyStatus() {
+  const manifestText = readText('../policy/verified/manifest.json');
+  const deciderText = readText('../src/decider.mjs');
+  let manifest = null;
+  try { manifest = manifestText ? JSON.parse(manifestText) : null; } catch { manifest = null; }
+  const ruleIds = [...RULE_IDS];
+  const deciderSha256 = deciderText ? createHash('sha256').update(deciderText, 'utf8').digest('hex') : null;
+  return {
+    ruleIds,
+    verifiedVersion: manifest?.version ?? null,
+    rulesMatchVerified: manifest ? JSON.stringify([...manifest.ruleIds].sort()) === JSON.stringify([...ruleIds].sort()) : null,
+    deciderSha256: deciderSha256 ? deciderSha256.slice(0, 12) : null,
+    matchesVerifiedCopy: deciderSha256 && manifest ? deciderSha256 === manifest.deciderSha256 : null,
+  };
+}
+
+export function createOpsSummaryHandler(getDeps = defaultDeps) {
+  return withDeps(async (req, res, deps) => {
+    if (req.method !== 'GET') {
+      res.setHeader('Allow', 'GET');
+      return send(res, 405, { error: 'GET만 받습니다.' });
+    }
+    const user = await authenticate(req, res, deps, '/api/ops/summary', readOnly(req));
+    if (!user) return undefined;
+    const me = actorHash(user.userId);
+    const own = await deps.requestLog.forActor(me, 100);
+    const runIds = [...new Set(own.map(row => row.run_id).filter(Boolean))].slice(0, 20);
+    const anonymous = await deps.requestLog.anonymousForRuns(runIds, 100);
+    const records = [...own, ...anonymous]
+      .sort((a, b) => String(b.at).localeCompare(String(a.at)))
+      .map(row => ({ requestId: row.request_id, at: row.at, method: row.method, route: row.route,
+        status: row.status, reason: row.reason ?? null, tokenKind: row.token_kind ?? null,
+        deviceId: row.device_id ?? null, runId: row.run_id ?? null, actor: row.actor_hash ? 'self' : 'anonymous' }));
+
+    // 탐지: 본인 GET 기록을 9단계 탐지기에 그대로 넣은 결과(가명 주체 = 가린 해시)
+    const events = own.filter(row => row.method === 'GET').map(row => ({
+      identity: { sub: `actor_${row.actor_hash}` }, method: row.method, at: row.at,
+      ...(row.device_id ? { deviceId: row.device_id } : {}) }));
+    const detection = detect(events);
+
+    const deviceRows = deps.devices?.listByOwner ? await deps.devices.listByOwner(user.userId) : [];
+    const deviceCounts = { pending: 0, approved: 0, revoked: 0 };
+    for (const row of deviceRows) if (row.status in deviceCounts) deviceCounts[row.status] += 1;
+    const thisDevice = user.deviceId ? (deviceRows.find(row => row.device_id === user.deviceId)?.status ?? null) : null;
+
+    const backup = deps.backups?.summary ? await deps.backups.summary(user.userId) : { count: 0, lastBackupAt: null };
+    const restores = deps.backups?.restoresBy ? await deps.backups.restoresBy(user.userId, 20) : [];
+
+    return send(res, 200, {
+      schema: 'aleph.ops.summary.v1',
+      requestId: res.getHeader?.('X-Request-Id') ?? null,
+      generatedAt: deps.now ? deps.now() : new Date().toISOString(),
+      scope: { actor: me, rule: '로그인한 본인의 기록과 본인이 시작한 점검 회차의 비로그인 요청만' },
+      decider: policyStatus(),
+      detection: { source: 'vault_request_log 본인 GET 기록', events: events.length, result: detection },
+      revocation: { devices: deviceCounts, thisDevice, proposed: detection.action === 'propose_revocation' },
+      restore: { backups: backup.count, lastBackupAt: backup.lastBackupAt, restores: restores.length,
+        lastRestoreAt: restores[0]?.at ?? null, lastPreviousState: restores[0]?.previous_state ?? null,
+        lastContentSha256: restores[0]?.content_sha256 ? String(restores[0].content_sha256).slice(0, 12) : null },
+      records,
+      counts: opsCounts(records),
+    });
+  }, getDeps, '/api/ops/summary');
 }
