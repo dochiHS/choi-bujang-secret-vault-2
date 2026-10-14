@@ -81,13 +81,11 @@ export async function runAttackChecks(config) {
     expected: '토큰 없는 목록 조회는 자료 없이 401/403 JSON 오류',
     observed: rejection(await send(app, '/api/notes')) });
 
-  // 4) 로그인 토큰 없이 메모 추가
+  // 4) 로그인 토큰 없이 메모 추가 — 12단계: 심판의 격리 환경은 GET·HEAD만 보내므로 쓰기 요청은 보내지 않고 not_run으로 둡니다.
+  //    실측은 배포 화면의 탈환 작전실 점검표(anonymous_note_write 줄, 요청 ID와 가린 서버 기록 대조)에서 합니다.
   results.push({ attackId: 'anonymous_api_notes_create',
     expected: '토큰 없는 메모 추가는 401/403으로 거절',
-    observed: rejection(await send(app, '/api/notes', {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ title: '점검', body: '점검' }),
-    })) });
+    observed: 'not_run: 제출 묶음 점검은 GET·HEAD만 보내 쓰기 요청을 보내지 않음. 탈환 작전실 점검표에서 실측' });
 
   // 5) 로그인 토큰 없이 한 건 조회 (임의 UUID)
   results.push({ attackId: 'anonymous_api_note_item_read',
@@ -118,7 +116,7 @@ export async function runAttackChecks(config) {
   } else {
     results.push({ attackId: 'anon_original_api_read',
       expected: '원본 자료 API를 공개(anon) 키로 직접 읽으면 거절되거나 0건',
-      observed: '미실행: SUPABASE_PUBLISHABLE_KEY 환경변수를 주지 않아 보내지 않음' });
+      observed: 'not_run: SUPABASE_PUBLISHABLE_KEY 환경변수를 주지 않아 보내지 않음' });
   }
 
   // 8) 공개 첫 화면에 Supabase 키·서버 키·시드 표식이 있는지
@@ -132,7 +130,7 @@ export async function runAttackChecks(config) {
   // 9) A/B 교차 접근(B가 A 메모 읽기·수정·삭제, 소유자 변경)은 두 계정의 실제 토큰이 필요해 여기서 보내지 않습니다.
   results.push({ attackId: 'cross_owner_note_access',
     expected: 'B가 A 메모를 읽기·수정·삭제하거나 소유자를 바꾸면 거절, 각자 자기 메모는 허용',
-    observed: '미실행: 두 계정의 실제 로그인 토큰이 필요해 자동 점검에서 보내지 않음. 배포 화면과 test/r5.test.mjs로 확인' });
+    observed: 'not_run: 두 계정의 실제 로그인 토큰이 필요해 자동 점검에서 보내지 않음. 탈환 작전실 점검표와 test/r5.test.mjs로 확인' });
 
   // 10~13) 6단계 판정기(src/decider.mjs)에 가상 요청을 직접 넣어 본 결과(로컬 실행, 심판 판정 아님)
   if (config.step >= 6) {
@@ -200,9 +198,9 @@ export async function runAttackChecks(config) {
       }
     }
   }
-  // 20) 11단계: 배포된 접속 화면과 앱 설정을 GET으로 읽어 본 결과(실제로 보낸 요청, 심판 판정 아님)
-  // 화면 코드가 브라우저 저장소를 쓰지 않는지, manifest가 있는지, 로그인 없이 기기 상태를 물으면 거절되는지 봅니다.
-  // 요청 서명(서명 없음·경로 변경·본문 변경 거절)은 npm run test:r11 로컬 시험으로 확인합니다.
+  // 20) 11·12단계: 배포된 접속 화면·앱 설정·작전실 요약을 GET으로 읽어 본 결과(실제로 보낸 요청, 심판 판정 아님)
+  // 화면 코드가 브라우저 저장소를 쓰지 않는지, manifest가 있는지, 로그인 없이 기기 상태·작전실 요약을 물으면 거절되는지 봅니다.
+  // 요청 서명(서명 없음·경로 변경·본문 변경 거절)은 npm run test:r11, 작전실 수치·가린 기록 대조는 npm run test:r12 로컬 시험으로 확인합니다.
   if (config.step >= 11) {
     const storageApis = [/localStorage/u, /sessionStorage/u, /indexedDB/u, /document\.cookie/u]
       .filter((pattern) => pattern.test(page.text)).length;
@@ -210,9 +208,13 @@ export async function runAttackChecks(config) {
     let manifestJson = null;
     try { manifestJson = JSON.parse(manifest.text); } catch { manifestJson = null; }
     const deviceStatus = await send(app, '/api/devices/status');
+    const opsSummary = config.step >= 12 ? await send(app, '/api/ops/summary') : null;
+    const opsText = opsSummary
+      ? `, 작전실 요약 HTTP ${opsSummary.status}${(opsSummary.status === 401 || opsSummary.status === 403) ? ' 거절' : ' 거절 안 됨'}`
+      : '';
     results.push({ attackId: 'install_screen_device_check',
-      expected: '화면 코드에 브라우저 저장소 사용 없음, manifest 있음, 로그인·기기 서명 없는 기기 상태 조회는 401/403',
-      observed: `화면의 브라우저 저장소 사용 ${storageApis}종, manifest ${manifest.ok && manifestJson?.name ? `있음(HTTP ${manifest.status})` : `없음(HTTP ${manifest.status})`}, 기기 상태 조회 ${rejection(deviceStatus)}` });
+      expected: '화면 코드에 브라우저 저장소 사용 없음, manifest 있음, 로그인 없는 기기 상태·작전실 요약 조회는 401/403',
+      observed: `화면의 브라우저 저장소 사용 ${storageApis}종, manifest ${manifest.ok && manifestJson?.name ? `있음(HTTP ${manifest.status})` : `없음(HTTP ${manifest.status})`}, 기기 상태 조회 HTTP ${deviceStatus.status}${opsText}` });
   }
   return results;
 }
