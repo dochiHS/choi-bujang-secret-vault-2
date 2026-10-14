@@ -1,0 +1,27 @@
+{
+  "schema": "aleph.xdr.patterns.v1",
+  "moduleKey": "persistence",
+  "source": "MITRE ATT&CK T1543 Create or Modify System Process (https://attack.mitre.org/techniques/T1543/) · T1053 Scheduled Task/Job (https://attack.mitre.org/techniques/T1053/)",
+  "patterns": [
+    {
+      "name": "T1543-unsigned-new-service",
+      "condition": "서명 없는 새 서비스 등록·서비스 실행 파일 교체, 또는 평소 목록에 없는 서비스가 임시 폴더 실행 파일을 가리킴(같은 주소 연속 등록 포함)",
+      "basis": "T1543: 공격자가 서비스를 새로 만들거나 바꿔 재부팅 뒤에도 악성 프로그램이 다시 실행되게 하는 형태"
+    },
+    {
+      "name": "T1053-unfamiliar-scheduled-task",
+      "condition": "처음 보는(또는 임의 문자열 이름) 예약 작업이 임시 폴더 프로그램을 수업 시간 밖에 실행",
+      "basis": "T1053: 예약 작업으로 악성 프로그램을 정해진 시각마다 다시 실행해 자리를 유지하는 형태"
+    },
+    {
+      "name": "T1543-startup-folder-change",
+      "condition": "시작 폴더·시작 프로그램에 평소 목록에 없는 실행 파일이 추가되거나 예약 작업과 같은 임시 파일을 가리킴",
+      "basis": "T1543·T1053: 시작 항목에 실행 파일을 넣어 로그인할 때마다 다시 켜지게 하는 지속성 형태"
+    },
+    {
+      "name": "T1543-T1053-single-weak-sign",
+      "condition": "T1543·T1053 태그는 붙었지만 수업 도구·수업 시간 작업이거나 변경 1건뿐이라 지속성 증거가 약함",
+      "basis": "T1543·T1053 Detection: 정상 관리 작업과 겹치는 한 번짜리 변경은 사람이 확인해야 함"
+    }
+  ]
+}

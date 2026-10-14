@@ -1,0 +1,155 @@
+{
+  "schema": "aleph.xdr.result.v1",
+  "moduleKey": "persistence",
+  "decisions": [
+    {
+      "alertId": "ps-01",
+      "action": "block",
+      "confidence": 0.9,
+      "reason": "T1543-unsigned-new-service: 서명 없음·임시 폴더 실행 파일"
+    },
+    {
+      "alertId": "ps-02",
+      "action": "block",
+      "confidence": 0.93,
+      "reason": "T1053-unfamiliar-scheduled-task: 임시 폴더 실행 파일·낯선 등록·수업 시간 밖"
+    },
+    {
+      "alertId": "ps-03",
+      "action": "block",
+      "confidence": 0.9,
+      "reason": "T1543-startup-folder-change: 시작 폴더 변경·낯선 등록"
+    },
+    {
+      "alertId": "ps-04",
+      "action": "block",
+      "confidence": 0.9,
+      "reason": "T1543-unsigned-new-service: 서명 없음·연속 등록"
+    },
+    {
+      "alertId": "ps-05",
+      "action": "block",
+      "confidence": 0.9,
+      "reason": "T1053-unfamiliar-scheduled-task: 임시 폴더 실행 파일·낯선 등록"
+    },
+    {
+      "alertId": "ps-06",
+      "action": "block",
+      "confidence": 0.9,
+      "reason": "T1543-unsigned-new-service: 서명 없음·임시 폴더 실행 파일"
+    },
+    {
+      "alertId": "ps-07",
+      "action": "block",
+      "confidence": 0.9,
+      "reason": "T1543-startup-folder-change: 임시 폴더 실행 파일·시작 폴더 변경"
+    },
+    {
+      "alertId": "ps-08",
+      "action": "block",
+      "confidence": 0.9,
+      "reason": "T1053-unfamiliar-scheduled-task: 임시 폴더 실행 파일·낯선 등록"
+    },
+    {
+      "alertId": "ps-09",
+      "action": "alert",
+      "confidence": 0.6,
+      "reason": "T1543-T1053-single-weak-sign: 태그만 있음, 정상 활동과 겹침"
+    },
+    {
+      "alertId": "ps-10",
+      "action": "alert",
+      "confidence": 0.6,
+      "reason": "T1543-T1053-single-weak-sign: 태그만 있음, 정상 활동과 겹침"
+    },
+    {
+      "alertId": "ps-11",
+      "action": "alert",
+      "confidence": 0.6,
+      "reason": "T1543-T1053-single-weak-sign: 태그만 있음, 정상 활동과 겹침"
+    },
+    {
+      "alertId": "ps-12",
+      "action": "alert",
+      "confidence": 0.6,
+      "reason": "T1543-T1053-single-weak-sign: 태그만 있음, 정상 활동과 겹침"
+    },
+    {
+      "alertId": "ps-13",
+      "action": "alert",
+      "confidence": 0.6,
+      "reason": "T1543-T1053-single-weak-sign: 임시 폴더 실행 파일 1개뿐, 정상 활동과 겹침"
+    },
+    {
+      "alertId": "ps-14",
+      "action": "alert",
+      "confidence": 0.6,
+      "reason": "T1543-T1053-single-weak-sign: 태그만 있음, 정상 활동과 겹침"
+    },
+    {
+      "alertId": "ps-15",
+      "action": "alert",
+      "confidence": 0.6,
+      "reason": "T1543-T1053-single-weak-sign: 태그만 있음, 정상 활동과 겹침"
+    },
+    {
+      "alertId": "ps-16",
+      "action": "alert",
+      "confidence": 0.6,
+      "reason": "T1543-T1053-single-weak-sign: 태그만 있음"
+    },
+    {
+      "alertId": "ps-17",
+      "action": "record",
+      "confidence": 0.05,
+      "reason": "정상 이벤트: 지속성 형태 없음"
+    },
+    {
+      "alertId": "ps-18",
+      "action": "record",
+      "confidence": 0.05,
+      "reason": "정상 이벤트: 지속성 형태 없음"
+    },
+    {
+      "alertId": "ps-19",
+      "action": "record",
+      "confidence": 0.05,
+      "reason": "정상 이벤트: 지속성 형태 없음"
+    },
+    {
+      "alertId": "ps-20",
+      "action": "record",
+      "confidence": 0.05,
+      "reason": "정상 이벤트: 지속성 형태 없음"
+    },
+    {
+      "alertId": "ps-21",
+      "action": "record",
+      "confidence": 0.05,
+      "reason": "정상 이벤트: 지속성 형태 없음"
+    },
+    {
+      "alertId": "ps-22",
+      "action": "record",
+      "confidence": 0.05,
+      "reason": "정상 이벤트: 지속성 형태 없음"
+    },
+    {
+      "alertId": "ps-23",
+      "action": "record",
+      "confidence": 0.05,
+      "reason": "정상 이벤트: 지속성 형태 없음"
+    },
+    {
+      "alertId": "ps-24",
+      "action": "record",
+      "confidence": 0.05,
+      "reason": "정상 이벤트: 지속성 형태 없음"
+    }
+  ],
+  "counts": {
+    "block": 8,
+    "alert": 8,
+    "record": 8
+  }
+}

@@ -1,0 +1,86 @@
+{
+  "schema": "aleph.xdr.deny-rules.v1",
+  "moduleKey": "persistence",
+  "rules": [
+    {
+      "ruleId": "xdr.persistence.deny",
+      "match": {
+        "srcip": "203.0.113.12"
+      },
+      "sourceAlertId": "ps-01",
+      "reason": "T1543-unsigned-new-service: 서명 없음·임시 폴더 실행 파일",
+      "createdAt": "2026-09-27T00:18:04.000Z",
+      "expiresAt": "2026-09-27T01:18:04.000Z"
+    },
+    {
+      "ruleId": "xdr.persistence.deny",
+      "match": {
+        "srcip": "203.0.113.12"
+      },
+      "sourceAlertId": "ps-02",
+      "reason": "T1053-unfamiliar-scheduled-task: 임시 폴더 실행 파일·낯선 등록·수업 시간 밖",
+      "createdAt": "2026-09-27T00:19:12.000Z",
+      "expiresAt": "2026-09-27T01:19:12.000Z"
+    },
+    {
+      "ruleId": "xdr.persistence.deny",
+      "match": {
+        "srcip": "198.51.100.12"
+      },
+      "sourceAlertId": "ps-03",
+      "reason": "T1543-startup-folder-change: 시작 폴더 변경·낯선 등록",
+      "createdAt": "2026-09-27T01:06:28.000Z",
+      "expiresAt": "2026-09-27T02:06:28.000Z"
+    },
+    {
+      "ruleId": "xdr.persistence.deny",
+      "match": {
+        "srcip": "192.0.2.12"
+      },
+      "sourceAlertId": "ps-04",
+      "reason": "T1543-unsigned-new-service: 서명 없음·연속 등록",
+      "createdAt": "2026-09-27T01:22:03.000Z",
+      "expiresAt": "2026-09-27T02:22:03.000Z"
+    },
+    {
+      "ruleId": "xdr.persistence.deny",
+      "match": {
+        "srcip": "203.0.113.19"
+      },
+      "sourceAlertId": "ps-05",
+      "reason": "T1053-unfamiliar-scheduled-task: 임시 폴더 실행 파일·낯선 등록",
+      "createdAt": "2026-09-27T02:09:17.000Z",
+      "expiresAt": "2026-09-27T03:09:17.000Z"
+    },
+    {
+      "ruleId": "xdr.persistence.deny",
+      "match": {
+        "srcip": "198.51.100.19"
+      },
+      "sourceAlertId": "ps-06",
+      "reason": "T1543-unsigned-new-service: 서명 없음·임시 폴더 실행 파일",
+      "createdAt": "2026-09-27T04:07:45.000Z",
+      "expiresAt": "2026-09-27T05:07:45.000Z"
+    },
+    {
+      "ruleId": "xdr.persistence.deny",
+      "match": {
+        "srcip": "192.0.2.19"
+      },
+      "sourceAlertId": "ps-07",
+      "reason": "T1543-startup-folder-change: 임시 폴더 실행 파일·시작 폴더 변경",
+      "createdAt": "2026-09-27T05:14:08.000Z",
+      "expiresAt": "2026-09-27T06:14:08.000Z"
+    },
+    {
+      "ruleId": "xdr.persistence.deny",
+      "match": {
+        "srcip": "203.0.113.33"
+      },
+      "sourceAlertId": "ps-08",
+      "reason": "T1053-unfamiliar-scheduled-task: 임시 폴더 실행 파일·낯선 등록",
+      "createdAt": "2026-09-27T06:28:31.000Z",
+      "expiresAt": "2026-09-27T07:28:31.000Z"
+    }
+  ]
+}
