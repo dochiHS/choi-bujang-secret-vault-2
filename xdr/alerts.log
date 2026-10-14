@@ -16,3 +16,11 @@
 2026-09-27T13:15:03+09:00	web-injection	wi-15	192.0.2.42		confidence=0.6	T1190-single-suspicious-input: 1번, Jev 응답 없음
 2026-09-27T14:09:50+09:00	web-injection	wi-16	198.51.100.42		confidence=0.6	T1190-single-suspicious-input: 1번, Jev 응답 없음
 2026-09-27T15:18:12+09:00	web-injection	wi-17	203.0.113.43		confidence=0.6	T1190-single-suspicious-input: 1번, Jev 응답 없음
+2026-09-27T09:28:11+09:00	known-cve	kc-09	192.0.2.45		confidence=0.6	CVE-2021-44228-mention-only: 완전한 조회 구문 없음, 사람이 확인
+2026-09-27T09:46:30+09:00	known-cve	kc-10	198.51.100.45		confidence=0.6	CVE-2021-44228-mention-only: 완전한 조회 구문 없음, 사람이 확인
+2026-09-27T10:12:07+09:00	known-cve	kc-11	203.0.113.45		confidence=0.6	CVE-2021-44228-mention-only: 완전한 조회 구문 없음, 사람이 확인
+2026-09-27T10:38:19+09:00	known-cve	kc-12	192.0.2.46		confidence=0.6	CVE-2021-44228-mention-only: 완전한 조회 구문 없음, 사람이 확인
+2026-09-27T11:16:28+09:00	known-cve	kc-13	198.51.100.46		confidence=0.6	CVE-2021-44228-mention-only: 완전한 조회 구문 없음, 사람이 확인
+2026-09-27T12:09:04+09:00	known-cve	kc-14	203.0.113.46		confidence=0.6	CVE-2021-44228-mention-only: 완전한 조회 구문 없음, 사람이 확인
+2026-09-27T13:22:13+09:00	known-cve	kc-15	192.0.2.47		confidence=0.6	CVE-2021-44228-mention-only: 완전한 조회 구문 없음, 사람이 확인
+2026-09-27T14:11:36+09:00	known-cve	kc-16	198.51.100.47		confidence=0.6	CVE-2021-44228-mention-only: 완전한 조회 구문 없음, 사람이 확인
