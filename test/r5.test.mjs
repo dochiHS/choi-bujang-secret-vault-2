@@ -37,36 +37,32 @@ test('build identity uses Vercel Git and deployment metadata', () => {
   assert.throws(() => deploymentIdentity({ ...env, VERCEL_GIT_COMMIT_SHA: 'short' }, config));
 });
 
-test('stage 3 checks: unauthenticated and forged requests are refused', async () => {
+test('stage 3~12 self-checks: GET only, one linked request per executed check, plain HTTP status', async () => {
   const originalFetch = globalThis.fetch;
   const seen = [];
   try {
     globalThis.fetch = async (url, init) => {
       const path = new URL(String(url)).pathname;
-      seen.push(`${init.method} ${path.replace(/[0-9a-f-]{36}$/u, ':id')}`);
+      assert.equal(init.method, 'GET');
       assert.equal(init.redirect, 'error');
+      assert.equal(init.alephEvidence?.requestKey, 'read');
+      seen.push({ caseId: init.alephEvidence.caseId, path, auth: init.headers?.Authorization ?? null });
       if (path === '/data.json') return new Response('Not Found', { status: 404 });
-      if (path === '/') return new Response('<html>자료실</html>', { status: 200 });
+      if (path === '/' || path === '/manifest.webmanifest') return new Response('{}', { status: 200 });
       return new Response('{"error":"로그인이 필요합니다."}', { status: 401 });
     };
     const results = await runAttackChecks(config);
-    // 12단계: 심판 격리 환경 조건에 맞춰 자기 점검은 GET·HEAD만 보냅니다(쓰기 요청 점검은 not_run).
-    assert.deepEqual(seen.slice(0, 5), ['GET /data.json', 'GET /', 'GET /api/notes',
-      'GET /api/notes/:id', 'GET /api/notes']);
-    assert.ok(seen.every(item => item.startsWith('GET ') || item.startsWith('HEAD ')));
-    assert.match(results[0].observed, /보이지 않음 \(HTTP 404\)/u);
-    assert.match(results[1].observed, /보이지 않음/u);
-    assert.match(results[2].observed, /HTTP 401로 거절, JSON 오류 문구 있음/u);
-    assert.match(results[3].observed, /^not_run/u);
-    for (const item of results.slice(4, 6)) assert.match(item.observed, /HTTP 401로 거절, JSON 오류 문구 있음/u);
-    assert.match(results[6].observed, /^not_run/u);
-    assert.match(results[7].observed, /보이지 않음/u);
-    assert.match(results[8].observed, /^not_run/u);
+    const executed = results.filter(item => item.observed !== 'not_run');
+    // 실제로 보낸 요청과 제출 점검 ID가 하나씩 정확히 맞아야 합니다.
+    assert.deepEqual(seen.map(item => item.caseId), executed.map(item => item.attackId));
+    assert.equal(new Set(seen.map(item => item.caseId)).size, seen.length);
+    for (const item of executed) assert.match(item.observed, /^HTTP \d{3}$/u);
+    for (const item of results.filter(r => r.observed === 'not_run')) assert.equal(item.observed, 'not_run');
+    assert.equal(results.find(r => r.attackId === 'static_data_json_read').observed, 'HTTP 404');
+    assert.equal(results.find(r => r.attackId === 'anonymous_api_notes_read').observed, 'HTTP 401');
+    assert.equal(results.find(r => r.attackId === 'anonymous_api_notes_create').observed, 'not_run');
+    assert.match(seen.find(r => r.caseId === 'forged_token_api_notes_read').auth, /^Bearer /u);
     for (const item of results) assert.doesNotMatch(item.observed, /eyJ|Bearer/u);
-
-    globalThis.fetch = async () => new Response('[{"title":"a"}]', { status: 200 });
-    const open = await runAttackChecks(config);
-    assert.match(open[2].observed, /거절되지 않음 \(HTTP 200, 메모가 응답에 보임\)/u);
   } finally {
     globalThis.fetch = originalFetch;
   }
