@@ -41,6 +41,14 @@
     .chip.ok { border-color: #4f9e80; color: #9be7c4; }
     .chip.wait { border-color: #b39350; color: #ffe3a3; }
     .offline { margin: 0 0 18px; padding: 12px 14px; border-radius: 12px; border: 1px solid #b39350; color: #ffe3a3; background: #4a3b1844; font-size: 15px; }
+    .ops-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 10px; margin: 12px 0; }
+    .ops-card { border: 1px solid #51667c; border-radius: 12px; padding: 12px 14px; background: #0d1622; display: grid; gap: 4px; font-size: 14px; color: #bfd0e5; }
+    .ops-card strong { color: #ecf4ff; font-size: 15px; }
+    .ops-scroll { overflow-x: auto; margin: 8px 0 16px; }
+    .ops-scroll table { border-collapse: collapse; font-size: 13px; min-width: 760px; width: 100%; }
+    .ops-scroll th, .ops-scroll td { border-bottom: 1px solid #2c3d51; padding: 6px 8px; text-align: left; vertical-align: top; }
+    .ops-scroll th { color: #8ad8df; white-space: nowrap; }
+    h3 { font-size: 17px; margin: 18px 0 6px; }
     [hidden] { display: none !important; }
   </style>
 </head>
@@ -102,6 +110,9 @@
 
       <h2>내 메모</h2>
       <ul id="notes" aria-live="polite"></ul>
+
+      <!-- 12단계: 탈환 작전실. 서버 응답(가린 서버 기록)에서 확인된 결과만 보여 주고, 메모 제목·본문은 표시하지 않습니다. -->
+      <section id="ops" class="panel" aria-labelledby="ops-title"></section>
     </section>
 
     <p id="boot-msg" class="msg">로그인 상태를 확인하는 중입니다.</p>
@@ -115,6 +126,7 @@
     // - 서버가 GET /api/devices/status로 "승인됨"을 돌려준 뒤에만 자료실을 열고 메모를 부릅니다.
     //   승인 버튼의 응답이나 설치형 앱 표시(display-mode)만으로는 자료실을 열지 않습니다.
     // - 자료 요청마다 방식·경로·시각·일회용 값·본문 해시를 기기 키로 서명합니다. 서명 뒤 경로나 본문이 바뀌면 서버가 거절합니다.
+    import { mountOps } from '/ops.js';
     const SCHEME = 'aleph.device.v1';
     const $ = (id) => document.getElementById(id);
     const loggedOut = $('logged-out');
@@ -126,6 +138,10 @@
     let device = null;           // 메모리에만 있는 기기 키 { keys, id, jwk }
     let approved = false;        // 서버가 마지막으로 확인해 준 승인 여부
     let clockOffset = 0;         // 서버 시각과의 차이(서명 시각을 맞추는 용도)
+    // 12단계 작전실: 점검 요청 도구만 넘깁니다(세션·키 값 자체는 넘기지 않음).
+    const ops = mountOps(document.getElementById('ops'), {
+      probe: (...args) => probe(...args), makeKey: () => makeKey(), isApproved: () => approved,
+    });
 
     function say(el, text, kind = '') {
       el.textContent = text;
@@ -153,18 +169,22 @@
     const sha256Hex = async (text) => toHex(await crypto.subtle.digest('SHA-256', encoder.encode(text)));
 
     // 이 탭에서 쓸 기기 키를 메모리에 만듭니다. 기기 ID = 공개키 지문(RFC 7638) 앞 16자리(서버도 같은 값을 계산).
-    async function deviceKey() {
-      if (device) return device;
+    // 메모리 안에서만 쓰는 키 쌍(개인키 내보내기 불가). 12단계 점검의 "미등록 기기" 흉내에도 같은 방식으로 새 키를 만듭니다.
+    async function makeKey() {
       const keys = await crypto.subtle.generateKey({ name: 'ECDSA', namedCurve: 'P-256' }, false, ['sign', 'verify']);
       const raw = await crypto.subtle.exportKey('jwk', keys.publicKey);
       const jwk = { kty: raw.kty, crv: raw.crv, x: raw.x, y: raw.y };
       const id = (await sha256Hex(`{"crv":"P-256","kty":"EC","x":"${jwk.x}","y":"${jwk.y}"}`)).slice(0, 16);
-      device = { keys, id, jwk };
+      return { keys, id, jwk };
+    }
+
+    async function deviceKey() {
+      if (!device) device = await makeKey();
       return device;
     }
 
-    async function signedHeaders(method, path, bodyText) {
-      const key = await deviceKey();
+    async function signedHeaders(method, path, bodyText, otherKey = null) {
+      const key = otherKey ?? await deviceKey();
       const timestamp = String(Date.now() + clockOffset);
       const nonce = crypto.randomUUID().replaceAll('-', '');
       const message = [SCHEME, method.toUpperCase(), path, timestamp, nonce, await sha256Hex(bodyText)].join('\n');
@@ -242,6 +262,29 @@
       return payload;
     }
 
+    // 12단계 점검용 요청: 결과(상태 코드·거부 사유·요청 ID)만 돌려주고 화면 상태는 바꾸지 않습니다.
+    // auth=false(비로그인), token(위조 토큰), sign=false(서명 없음), signPath·signBodyText(서명 뒤 바꾸기), key(미등록 기기 키)
+    async function probe(path, { method = 'GET', body, auth = true, token, sign = true, signPath, signBodyText, key, runId } = {}) {
+      const current = auth && !token ? await freshSession() : null;
+      const bodyText = body === undefined ? '' : JSON.stringify(body);
+      const headers = {};
+      if (auth && (token || current)) headers.Authorization = `Bearer ${token ?? current.access_token}`;
+      if (sign) Object.assign(headers, await signedHeaders(method, signPath ?? path, signBodyText ?? bodyText, key ?? null));
+      if (body !== undefined) headers['Content-Type'] = 'application/json';
+      if (runId) headers['X-Aleph-Check'] = runId;
+      const at = new Date().toISOString();
+      let response;
+      try {
+        response = await fetch(path, { method, cache: 'no-store', headers, body: body !== undefined ? bodyText : undefined });
+      } catch {
+        return { status: 0, reason: 'network_error', requestId: null, at, payload: null };
+      }
+      learnClock(response);
+      let payload = null;
+      try { payload = await response.json(); } catch { payload = null; }
+      return { status: response.status, reason: payload?.reason ?? null, requestId: response.headers.get('X-Request-Id'), at, payload };
+    }
+
     // ── 기기 승인 흐름 ──
     // 1) 공개키 등록(승인 대기) 2) 서버에 상태 확인 3) 서버가 approved라고 할 때만 자료실 열기
     async function registerDevice() {
@@ -273,6 +316,7 @@
 
     function openVault() {
       approved = true;
+      ops.show();
       chip($('device-chip'), '기기: 서버가 승인 확인함', 'ok');
       gate.hidden = true;
       loggedIn.hidden = false;
@@ -283,6 +327,7 @@
     // 승인 전·승인이 풀린 뒤에는 자료 목록을 비우고 자료실을 숨깁니다.
     function closeVault(message = '') {
       approved = false;
+      ops.reset();
       list.replaceChildren();
       loggedIn.hidden = true;
       gate.hidden = !session;
