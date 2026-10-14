@@ -1,0 +1,27 @@
+{
+  "schema": "aleph.xdr.patterns.v1",
+  "moduleKey": "exfiltration",
+  "source": "MITRE ATT&CK T1041 Exfiltration Over C2 Channel (https://attack.mitre.org/techniques/T1041/) · T1048 Exfiltration Over Alternative Protocol (https://attack.mitre.org/techniques/T1048/)",
+  "patterns": [
+    {
+      "name": "T1048-bulk-to-new-destination",
+      "condition": "처음 보는 목적지(외부 주소·평소 쓰지 않던 포트)로 대용량(50MB 이상) 또는 자료 50건 이상이 나감",
+      "basis": "T1048: 평소 통로가 아닌 다른 프로토콜·목적지로 자료를 대량 반출하는 형태"
+    },
+    {
+      "name": "T1041-repeated-c2-transfer",
+      "condition": "명령 통로·같은 목적지로 대용량 전송이 5번 이상 반복",
+      "basis": "T1041: 이미 열린 명령 통로를 통해 자료를 여러 번 나눠 빼내는 형태"
+    },
+    {
+      "name": "T1048-off-hours-archive",
+      "condition": "수업·업무 시간 밖에 압축 파일이 처음 보는 주소로 대용량 반출됨",
+      "basis": "T1048: 감시가 느슨한 시간에 자료를 압축해 외부로 내보내는 형태"
+    },
+    {
+      "name": "T1041-T1048-single-weak-sign",
+      "condition": "T1041·T1048 태그는 붙었지만 전송량이 작거나(50MB 미만) 1~2건뿐이고 실패·수업 자료 주소인 경우",
+      "basis": "T1041·T1048 Detection: 평소와 조금 다른 작은 전송은 백업·과제 제출과 겹쳐 사람이 확인해야 함"
+    }
+  ]
+}

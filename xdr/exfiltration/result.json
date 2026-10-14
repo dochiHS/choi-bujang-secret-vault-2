@@ -1,0 +1,191 @@
+{
+  "schema": "aleph.xdr.result.v1",
+  "moduleKey": "exfiltration",
+  "decisions": [
+    {
+      "alertId": "ex-01",
+      "action": "block",
+      "confidence": 0.93,
+      "reason": "T1048-bulk-to-new-destination: 대용량·자료 다수·처음 보는 목적지"
+    },
+    {
+      "alertId": "ex-02",
+      "action": "block",
+      "confidence": 0.96,
+      "reason": "T1048-off-hours-archive: 대용량·처음 보는 목적지·압축 파일 반출·시간 밖 전송"
+    },
+    {
+      "alertId": "ex-03",
+      "action": "block",
+      "confidence": 0.9,
+      "reason": "T1041-repeated-c2-transfer: 대용량·반복 전송"
+    },
+    {
+      "alertId": "ex-04",
+      "action": "block",
+      "confidence": 0.93,
+      "reason": "T1048-bulk-to-new-destination: 대용량·자료 다수·처음 보는 목적지"
+    },
+    {
+      "alertId": "ex-05",
+      "action": "block",
+      "confidence": 0.93,
+      "reason": "T1048-bulk-to-new-destination: 대용량·자료 다수·처음 보는 목적지"
+    },
+    {
+      "alertId": "ex-06",
+      "action": "block",
+      "confidence": 0.93,
+      "reason": "T1041-repeated-c2-transfer: 대용량·반복 전송·시간 밖 전송"
+    },
+    {
+      "alertId": "ex-07",
+      "action": "block",
+      "confidence": 0.93,
+      "reason": "T1048-bulk-to-new-destination: 대용량·처음 보는 목적지·압축 파일 반출"
+    },
+    {
+      "alertId": "ex-08",
+      "action": "block",
+      "confidence": 0.93,
+      "reason": "T1048-bulk-to-new-destination: 대용량·자료 다수·처음 보는 목적지"
+    },
+    {
+      "alertId": "ex-09",
+      "action": "block",
+      "confidence": 0.93,
+      "reason": "T1041-repeated-c2-transfer: 대용량·반복 전송·처음 보는 목적지"
+    },
+    {
+      "alertId": "ex-10",
+      "action": "block",
+      "confidence": 0.93,
+      "reason": "T1048-bulk-to-new-destination: 대용량·처음 보는 목적지·압축 파일 반출"
+    },
+    {
+      "alertId": "ex-11",
+      "action": "alert",
+      "confidence": 0.6,
+      "reason": "T1041-T1048-single-weak-sign: 태그만 있음"
+    },
+    {
+      "alertId": "ex-12",
+      "action": "alert",
+      "confidence": 0.6,
+      "reason": "T1041-T1048-single-weak-sign: 태그만 있음, 정상 활동과 겹침"
+    },
+    {
+      "alertId": "ex-13",
+      "action": "alert",
+      "confidence": 0.6,
+      "reason": "T1041-T1048-single-weak-sign: 태그만 있음, 정상 활동과 겹침"
+    },
+    {
+      "alertId": "ex-14",
+      "action": "alert",
+      "confidence": 0.6,
+      "reason": "T1041-T1048-single-weak-sign: 처음 보는 목적지 1개뿐, 정상 활동과 겹침"
+    },
+    {
+      "alertId": "ex-15",
+      "action": "alert",
+      "confidence": 0.6,
+      "reason": "T1041-T1048-single-weak-sign: 태그만 있음"
+    },
+    {
+      "alertId": "ex-16",
+      "action": "alert",
+      "confidence": 0.6,
+      "reason": "T1041-T1048-single-weak-sign: 태그만 있음, 정상 활동과 겹침"
+    },
+    {
+      "alertId": "ex-17",
+      "action": "alert",
+      "confidence": 0.6,
+      "reason": "T1041-T1048-single-weak-sign: 태그만 있음, 정상 활동과 겹침"
+    },
+    {
+      "alertId": "ex-18",
+      "action": "alert",
+      "confidence": 0.6,
+      "reason": "T1041-T1048-single-weak-sign: 태그만 있음, 정상 활동과 겹침"
+    },
+    {
+      "alertId": "ex-19",
+      "action": "alert",
+      "confidence": 0.6,
+      "reason": "T1041-T1048-single-weak-sign: 태그만 있음, 정상 활동과 겹침"
+    },
+    {
+      "alertId": "ex-20",
+      "action": "alert",
+      "confidence": 0.6,
+      "reason": "T1041-T1048-single-weak-sign: 압축 파일 반출 1개뿐"
+    },
+    {
+      "alertId": "ex-21",
+      "action": "record",
+      "confidence": 0.05,
+      "reason": "정상 이벤트: 유출 형태 없음"
+    },
+    {
+      "alertId": "ex-22",
+      "action": "record",
+      "confidence": 0.05,
+      "reason": "정상 이벤트: 유출 형태 없음"
+    },
+    {
+      "alertId": "ex-23",
+      "action": "record",
+      "confidence": 0.05,
+      "reason": "정상 이벤트: 유출 형태 없음"
+    },
+    {
+      "alertId": "ex-24",
+      "action": "record",
+      "confidence": 0.05,
+      "reason": "정상 이벤트: 유출 형태 없음"
+    },
+    {
+      "alertId": "ex-25",
+      "action": "record",
+      "confidence": 0.05,
+      "reason": "정상 이벤트: 유출 형태 없음"
+    },
+    {
+      "alertId": "ex-26",
+      "action": "record",
+      "confidence": 0.05,
+      "reason": "정상 이벤트: 유출 형태 없음"
+    },
+    {
+      "alertId": "ex-27",
+      "action": "record",
+      "confidence": 0.05,
+      "reason": "정상 이벤트: 유출 형태 없음"
+    },
+    {
+      "alertId": "ex-28",
+      "action": "record",
+      "confidence": 0.05,
+      "reason": "정상 이벤트: 유출 형태 없음"
+    },
+    {
+      "alertId": "ex-29",
+      "action": "record",
+      "confidence": 0.05,
+      "reason": "정상 이벤트: 유출 형태 없음"
+    },
+    {
+      "alertId": "ex-30",
+      "action": "record",
+      "confidence": 0.05,
+      "reason": "정상 이벤트: 유출 형태 없음"
+    }
+  ],
+  "counts": {
+    "block": 10,
+    "alert": 10,
+    "record": 10
+  }
+}

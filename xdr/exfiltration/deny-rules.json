@@ -1,0 +1,106 @@
+{
+  "schema": "aleph.xdr.deny-rules.v1",
+  "moduleKey": "exfiltration",
+  "rules": [
+    {
+      "ruleId": "xdr.exfiltration.deny",
+      "match": {
+        "srcip": "192.0.2.20"
+      },
+      "sourceAlertId": "ex-01",
+      "reason": "T1048-bulk-to-new-destination: 대용량·자료 다수·처음 보는 목적지",
+      "createdAt": "2026-09-27T00:16:03.000Z",
+      "expiresAt": "2026-09-27T01:16:03.000Z"
+    },
+    {
+      "ruleId": "xdr.exfiltration.deny",
+      "match": {
+        "srcip": "192.0.2.20"
+      },
+      "sourceAlertId": "ex-02",
+      "reason": "T1048-off-hours-archive: 대용량·처음 보는 목적지·압축 파일 반출·시간 밖 전송",
+      "createdAt": "2026-09-27T00:16:48.000Z",
+      "expiresAt": "2026-09-27T01:16:48.000Z"
+    },
+    {
+      "ruleId": "xdr.exfiltration.deny",
+      "match": {
+        "srcip": "198.51.100.20"
+      },
+      "sourceAlertId": "ex-03",
+      "reason": "T1041-repeated-c2-transfer: 대용량·반복 전송",
+      "createdAt": "2026-09-27T01:05:14.000Z",
+      "expiresAt": "2026-09-27T02:05:14.000Z"
+    },
+    {
+      "ruleId": "xdr.exfiltration.deny",
+      "match": {
+        "srcip": "203.0.113.20"
+      },
+      "sourceAlertId": "ex-04",
+      "reason": "T1048-bulk-to-new-destination: 대용량·자료 다수·처음 보는 목적지",
+      "createdAt": "2026-09-27T01:20:07.000Z",
+      "expiresAt": "2026-09-27T02:20:07.000Z"
+    },
+    {
+      "ruleId": "xdr.exfiltration.deny",
+      "match": {
+        "srcip": "192.0.2.25"
+      },
+      "sourceAlertId": "ex-05",
+      "reason": "T1048-bulk-to-new-destination: 대용량·자료 다수·처음 보는 목적지",
+      "createdAt": "2026-09-27T02:04:26.000Z",
+      "expiresAt": "2026-09-27T03:04:26.000Z"
+    },
+    {
+      "ruleId": "xdr.exfiltration.deny",
+      "match": {
+        "srcip": "198.51.100.25"
+      },
+      "sourceAlertId": "ex-06",
+      "reason": "T1041-repeated-c2-transfer: 대용량·반복 전송·시간 밖 전송",
+      "createdAt": "2026-09-27T03:02:19.000Z",
+      "expiresAt": "2026-09-27T04:02:19.000Z"
+    },
+    {
+      "ruleId": "xdr.exfiltration.deny",
+      "match": {
+        "srcip": "203.0.113.25"
+      },
+      "sourceAlertId": "ex-07",
+      "reason": "T1048-bulk-to-new-destination: 대용량·처음 보는 목적지·압축 파일 반출",
+      "createdAt": "2026-09-27T04:12:08.000Z",
+      "expiresAt": "2026-09-27T05:12:08.000Z"
+    },
+    {
+      "ruleId": "xdr.exfiltration.deny",
+      "match": {
+        "srcip": "192.0.2.26"
+      },
+      "sourceAlertId": "ex-08",
+      "reason": "T1048-bulk-to-new-destination: 대용량·자료 다수·처음 보는 목적지",
+      "createdAt": "2026-09-27T05:03:41.000Z",
+      "expiresAt": "2026-09-27T06:03:41.000Z"
+    },
+    {
+      "ruleId": "xdr.exfiltration.deny",
+      "match": {
+        "srcip": "198.51.100.26"
+      },
+      "sourceAlertId": "ex-09",
+      "reason": "T1041-repeated-c2-transfer: 대용량·반복 전송·처음 보는 목적지",
+      "createdAt": "2026-09-27T06:08:12.000Z",
+      "expiresAt": "2026-09-27T07:08:12.000Z"
+    },
+    {
+      "ruleId": "xdr.exfiltration.deny",
+      "match": {
+        "srcip": "203.0.113.26"
+      },
+      "sourceAlertId": "ex-10",
+      "reason": "T1048-bulk-to-new-destination: 대용량·처음 보는 목적지·압축 파일 반출",
+      "createdAt": "2026-09-27T07:01:05.000Z",
+      "expiresAt": "2026-09-27T08:01:05.000Z"
+    }
+  ]
+}
