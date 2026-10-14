@@ -18,13 +18,19 @@ function appUrl(config) {
   return app;
 }
 
-async function send(app, path, { method = 'GET', headers = {}, body } = {}) {
+// 12단계: 심판 격리 환경 규칙
+// - 공개 HTTPS로 GET·HEAD만 보냅니다. 쓰기 요청이 필요한 점검은 보내지 않고 observed를 정확히 "not_run"으로 둡니다.
+// - 실제로 보낸 요청에는 fetch 옵션 alephEvidence {caseId: attackId, requestKey: 'read'}를 붙여, 심판 실행기가 그 요청을
+//   제출 점검 ID와 연결할 수 있게 합니다(HTTP 머리글·신원·권한 값이 아님). 점검 하나에 요청 하나만 보냅니다.
+// - observed에는 실제 응답의 "HTTP <상태 코드>"만 적습니다. 설명·통과 문구는 넣지 않습니다.
+async function send(app, path, attackId, { headers = {} } = {}) {
   const response = await fetch(new URL(path, app), {
-    method, headers, body, redirect: 'error', signal: typeof AbortSignal !== 'undefined' && typeof AbortSignal.timeout === 'function' ? AbortSignal.timeout(10000) : undefined, cache: 'no-store',
+    method: 'GET', headers, redirect: 'error', cache: 'no-store',
+    signal: typeof AbortSignal !== 'undefined' && typeof AbortSignal.timeout === 'function' ? AbortSignal.timeout(10000) : undefined,
+    alephEvidence: { caseId: attackId, requestKey: 'read' },
   });
   const text = await response.text();
-  return { status: response.status, ok: response.ok,
-    type: response.headers.get('content-type') ?? '', text };
+  return { status: response.status, ok: response.ok, text };
 }
 
 // 12단계: 심판 격리 환경에는 Buffer 같은 Node 전용 전역이 없어서, 글자(ASCII JSON)를 직접 base64url로 바꿉니다.
@@ -59,19 +65,6 @@ function forgedToken(config) {
   return `${header}.${payload}.${b64url(randomUUID() + randomUUID())}`;
 }
 
-// 거절이 "자료 없이 401/403 + JSON 오류"인지 한 줄로 적습니다.
-function rejection(result) {
-  let json = null;
-  try { json = JSON.parse(result.text); } catch { json = null; }
-  const leaked = Array.isArray(json) ? json.length > 0
-    : Array.isArray(json?.notes) && json.notes.length > 0;
-  const refused = (result.status === 401 || result.status === 403) && !leaked;
-  const jsonError = json && typeof json.error === 'string';
-  return refused
-    ? `HTTP ${result.status}로 거절, ${jsonError ? 'JSON 오류 문구 있음' : 'JSON 오류 문구 없음'}, 메모 0건`
-    : `거절되지 않음 (HTTP ${result.status}${leaked ? ', 메모가 응답에 보임' : ''})`;
-}
-
 export async function runAttackChecks(config) {
   if (!Number.isInteger(config.step) || config.step < 3) {
     throw new Error('3단계 이후 공격 점검입니다. aleph.config.json의 step을 확인해 주세요.');
@@ -79,161 +72,38 @@ export async function runAttackChecks(config) {
   if (typeof config.sampleMarker !== 'string' || !config.sampleMarker) throw new Error('가상 메모의 확인 표시를 넣어 주세요.');
   const app = appUrl(config);
   const results = [];
+  const run = async (attackId, expected, path, options) => {
+    const result = await send(app, path, attackId, options);
+    results.push({ attackId, expected, observed: `HTTP ${result.status}` });
+    return result;
+  };
+  const notRun = (attackId, expected) => results.push({ attackId, expected, observed: 'not_run' });
 
-  // 1) 옛 공개 정적 파일 /data.json에 메모가 남아 있는지
-  const staticFile = await send(app, '/data.json');
-  const staticLeak = staticFile.ok && (staticFile.text.includes(SEED_PHRASE)
-    || staticFile.text.includes(config.sampleMarker));
-  results.push({ attackId: 'static_data_json_read', expected: '/data.json에 가상 메모가 없어야 함',
-    observed: staticLeak ? `/data.json에서 가상 메모가 보임 (HTTP ${staticFile.status})`
-      : `/data.json에서 가상 메모가 보이지 않음 (HTTP ${staticFile.status})` });
+  // 1~2단계: 공개 정적 파일
+  await run('static_data_json_read', 'HTTP 404; /data.json에 가상 메모가 없음', '/data.json');
+  await run('static_page_seed_search', 'HTTP 200; 첫 화면 HTML에 가상 메모 문장이 없음', '/');
+  await run('static_page_key_search', 'HTTP 200; 첫 화면에 Supabase 공개 키·서버 키·시드 표식이 없음', '/');
 
-  // 2) 첫 화면 정적 파일에 메모 문장이 박혀 있는지
-  const page = await send(app, '/');
-  results.push({ attackId: 'static_page_seed_search', expected: '첫 화면 HTML에 가상 메모 문장이 없어야 함',
-    observed: page.text.includes(SEED_PHRASE)
-      ? `첫 화면 HTML에서 가상 메모 문장이 보임 (HTTP ${page.status})`
-      : `첫 화면 HTML에서 가상 메모 문장이 보이지 않음 (HTTP ${page.status})` });
+  // 3~5단계: 로그인 없는 요청·위조 토큰
+  await run('anonymous_api_notes_read', 'HTTP 401; 토큰 없는 목록 조회는 메모 없이 JSON 오류', '/api/notes');
+  notRun('anonymous_api_notes_create', 'HTTP 401; 토큰 없는 메모 추가 거절(쓰기 요청이라 묶음 점검에서는 보내지 않음, 작전실 점검표에서 실측)');
+  await run('anonymous_api_note_item_read', 'HTTP 401; 토큰 없는 한 건 조회 거절', `/api/notes/${randomUUID()}`);
+  await run('forged_token_api_notes_read', 'HTTP 401; 서명이 맞지 않는 토큰은 거절', '/api/notes',
+    { headers: { Authorization: `Bearer ${forgedToken(config)}` } });
+  await run('anonymous_notices_read', 'HTTP 401; 토큰 없는 공지 목록 조회 거절', '/api/notices');
+  notRun('anon_original_api_read', '원본 자료 API를 공개 키로 직접 읽으면 거절 또는 0건(공개 키를 묶음에 넣지 않아 보내지 않음)');
+  notRun('cross_owner_note_access', 'B의 A 메모 읽기·수정·삭제 거절(두 계정의 실제 토큰이 필요해 보내지 않음, test/r5와 작전실 점검표)');
+  if (config.step >= 10) notRun('anonymous_restore', 'HTTP 401; 토큰 없는 복구 요청 거절(POST라 보내지 않음)');
 
-  // 3) 로그인 토큰 없이 메모 목록 조회
-  results.push({ attackId: 'anonymous_api_notes_read',
-    expected: '토큰 없는 목록 조회는 자료 없이 401/403 JSON 오류',
-    observed: rejection(await send(app, '/api/notes')) });
-
-  // 4) 로그인 토큰 없이 메모 추가 — 12단계: 심판의 격리 환경은 GET·HEAD만 보내므로 쓰기 요청은 보내지 않고 not_run으로 둡니다.
-  //    실측은 배포 화면의 탈환 작전실 점검표(anonymous_note_write 줄, 요청 ID와 가린 서버 기록 대조)에서 합니다.
-  results.push({ attackId: 'anonymous_api_notes_create',
-    expected: '토큰 없는 메모 추가는 401/403으로 거절',
-    observed: 'not_run: 제출 묶음 점검은 GET·HEAD만 보내 쓰기 요청을 보내지 않음. 탈환 작전실 점검표에서 실측' });
-
-  // 5) 로그인 토큰 없이 한 건 조회 (임의 UUID)
-  results.push({ attackId: 'anonymous_api_note_item_read',
-    expected: '토큰 없는 한 건 조회는 401/403으로 거절',
-    observed: rejection(await send(app, `/api/notes/${randomUUID()}`)) });
-
-  // 6) 서명이 위조된 토큰으로 목록 조회
-  results.push({ attackId: 'forged_token_api_notes_read',
-    expected: '서명이 맞지 않는 토큰은 401/403으로 거절',
-    observed: rejection(await send(app, '/api/notes', {
-      headers: { Authorization: `Bearer ${forgedToken(config)}` },
-    })) });
-
-  // 7) 원본 자료 API(originalApiUrl)를 공개(anon) 키로 직접 불러 메모가 나오는지
-  const anonKey = process.env.SUPABASE_PUBLISHABLE_KEY;
-  if (typeof config.originalApiUrl === 'string' && anonKey) {
-    const original = new URL(config.originalApiUrl);
-    const direct = await send(new URL(`${original.origin}/`), `${original.pathname}?select=id,title&limit=5`, {
-      headers: { apikey: anonKey, Authorization: `Bearer ${anonKey}` },
-    });
-    let rows = null;
-    try { rows = JSON.parse(direct.text); } catch { rows = null; }
-    const leaked = Array.isArray(rows) && rows.length > 0;
-    results.push({ attackId: 'anon_original_api_read',
-      expected: '원본 자료 API를 공개(anon) 키로 직접 읽으면 거절되거나 0건',
-      observed: leaked ? `거절되지 않음 (HTTP ${direct.status}, ${rows.length}건 보임)`
-        : `메모 0건 (HTTP ${direct.status})` });
-  } else {
-    results.push({ attackId: 'anon_original_api_read',
-      expected: '원본 자료 API를 공개(anon) 키로 직접 읽으면 거절되거나 0건',
-      observed: 'not_run: SUPABASE_PUBLISHABLE_KEY 환경변수를 주지 않아 보내지 않음' });
-  }
-
-  // 8) 공개 첫 화면에 Supabase 키·서버 키·시드 표식이 있는지
-  const exposed = [/sb_publishable_/u, /sb_secret_/u, /eyJhbGci/u, new RegExp(config.sampleMarker, 'u')]
-    .filter((pattern) => pattern.test(page.text)).length;
-  results.push({ attackId: 'static_page_key_search',
-    expected: '첫 화면에 Supabase 공개 키·서버 키·시드 표식이 없어야 함',
-    observed: exposed ? `첫 화면에서 키 또는 표식 ${exposed}종이 보임 (HTTP ${page.status})`
-      : `첫 화면에서 키·표식이 보이지 않음 (HTTP ${page.status})` });
-
-  // 9) A/B 교차 접근(B가 A 메모 읽기·수정·삭제, 소유자 변경)은 두 계정의 실제 토큰이 필요해 여기서 보내지 않습니다.
-  results.push({ attackId: 'cross_owner_note_access',
-    expected: 'B가 A 메모를 읽기·수정·삭제하거나 소유자를 바꾸면 거절, 각자 자기 메모는 허용',
-    observed: 'not_run: 두 계정의 실제 로그인 토큰이 필요해 자동 점검에서 보내지 않음. 탈환 작전실 점검표와 test/r5.test.mjs로 확인' });
-
-  // 10~13) 6단계 판정기(src/decider.mjs)에 가상 요청을 직접 넣어 본 결과(로컬 실행, 심판 판정 아님)
-  if (config.step >= 6) {
-    const { decide } = await import('./decider.mjs');
-    const base = {
-      schema: 'aleph.decision.v1', requestId: randomUUID(), classId: 'class_fixture',
-      projectId: 'project_fixture', subjectId: 'learner_fixture', deviceId: 'a'.repeat(16),
-      service: 'notes', method: 'GET', path: '/notes/demo', route: 'GET /notes/:id',
-      queryLength: 0, querySha256: 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855',
-      at: new Date().toISOString(), policyRevision: 1, deviceRegistered: true,
-      stepUp: { verified: false, authAgeSeconds: null }, recentEvents: [],
-      signals: { source: 'none', region: 'unknown', network: 'unknown', hour: 12 },
-    };
-    const deviceCases = [
-      ['decider_registered_device', '등록 기기(deviceRegistered true)의 정상 요청은 allow', {}],
-      ['decider_unregistered_device', '미등록 기기(deviceRegistered false)는 deny · device_not_registered',
-        { deviceRegistered: false }],
-      ['decider_missing_device_flag', '기기 등록 값이 없으면 deny · device_not_registered',
-        { deviceRegistered: undefined }],
-      ['decider_malformed_device_id', '계약 형식(16자리 소문자 16진수)이 아닌 기기 ID는 deny · device_not_registered',
-        { deviceId: 'virtual-device' }],
-    ];
-    for (const [attackId, expected, change] of deviceCases) {
-      const request = { ...base, ...change, requestId: randomUUID() };
-      if ('deviceRegistered' in change && change.deviceRegistered === undefined) delete request.deviceRegistered;
-      const response = await decide(request);
-      results.push({ attackId, expected,
-        observed: `로컬 판정기 응답: ${response?.decision} · ${response?.reasonCode} · ${JSON.stringify(response?.ruleIds)}` });
-    }
-
-    // 14~17) 7단계: 평소와 다른 접속은 다시 확인(로컬 실행, 심판 판정 아님)
-    if (config.step >= 7) {
-      const fixture = { source: 'judge_fixture', region: 'local', network: 'usual', hour: 14 };
-      const anomalyCases = [
-        ['decider_normal_fixture_signal', '평소 지역·시각·네트워크의 가상 사건은 allow',
-          { signals: fixture }],
-        ['decider_compound_anomaly', '다른 지역·새벽·낯선 네트워크·대량 사건은 step_up · step_up_required',
-          { signals: { ...fixture, region: 'foreign', network: 'unusual', hour: 3 },
-            recentEvents: [{ kind: 'risk_signal', ageSeconds: 60, count: 20 }] }],
-        ['decider_forged_client_signal', '출처를 믿을 수 없는 접속 정보(클라이언트 헤더)는 정상으로 승격되지 않고 step_up',
-          { signals: { ...fixture, source: 'client_header' } }],
-        ['decider_fresh_step_up', '같은 복합 이상 사건도 60초 전에 다시 확인했으면 allow',
-          { signals: { ...fixture, region: 'foreign', network: 'unusual', hour: 3 },
-            stepUp: { verified: true, authAgeSeconds: 60 } }],
-      ];
-      for (const [attackId, expected, change] of anomalyCases) {
-        const response = await decide({ ...base, ...change, requestId: randomUUID() });
-        results.push({ attackId, expected,
-          observed: `로컬 판정기 응답: ${response?.decision} · ${response?.reasonCode} · ${JSON.stringify(response?.ruleIds)}` });
-      }
-    }
-
-    // 19~20) 8단계: 구역 규칙(로컬 실행, 심판 판정 아님). 소유자·강사 대조는 API 시험(test/r8.test.mjs)에서 확인
-    if (config.step >= 8) {
-      const zoneCases = [
-        ['decider_student_notice_edit', '학생의 강사 공지 수정(PUT /notices/:id)은 deny · zone_forbidden',
-          { method: 'PUT', route: 'PUT /notices/:id', path: '/notices/demo' }],
-        ['decider_function_path_in_id', ':id 자리에 기능 이름(/notes/export)은 deny · route_not_allowed',
-          { method: 'GET', route: 'GET /notes/:id', path: '/notes/export' }],
-      ];
-      for (const [attackId, expected, change] of zoneCases) {
-        const response = await decide({ ...base, ...change, requestId: randomUUID() });
-        results.push({ attackId, expected,
-          observed: `로컬 판정기 응답: ${response?.decision} · ${response?.reasonCode} · ${JSON.stringify(response?.ruleIds)}` });
-      }
-    }
-  }
-  // 20) 11·12단계: 배포된 접속 화면·앱 설정·작전실 요약을 GET으로 읽어 본 결과(실제로 보낸 요청, 심판 판정 아님)
-  // 화면 코드가 브라우저 저장소를 쓰지 않는지, manifest가 있는지, 로그인 없이 기기 상태·작전실 요약을 물으면 거절되는지 봅니다.
-  // 요청 서명(서명 없음·경로 변경·본문 변경 거절)은 npm run test:r11, 작전실 수치·가린 기록 대조는 npm run test:r12 로컬 시험으로 확인합니다.
+  // 11단계: 설치형 앱 설정과 기기 상태
   if (config.step >= 11) {
-    const storageApis = [/localStorage/u, /sessionStorage/u, /indexedDB/u, /document\.cookie/u]
-      .filter((pattern) => pattern.test(page.text)).length;
-    const manifest = await send(app, '/manifest.webmanifest');
-    let manifestJson = null;
-    try { manifestJson = JSON.parse(manifest.text); } catch { manifestJson = null; }
-    const deviceStatus = await send(app, '/api/devices/status');
-    const opsSummary = config.step >= 12 ? await send(app, '/api/ops/summary') : null;
-    const opsText = opsSummary
-      ? `, 작전실 요약 HTTP ${opsSummary.status}${(opsSummary.status === 401 || opsSummary.status === 403) ? ' 거절' : ' 거절 안 됨'}`
-      : '';
-    results.push({ attackId: 'install_screen_device_check',
-      expected: '화면 코드에 브라우저 저장소 사용 없음, manifest 있음, 로그인 없는 기기 상태·작전실 요약 조회는 401/403',
-      observed: `화면의 브라우저 저장소 사용 ${storageApis}종, manifest ${manifest.ok && manifestJson?.name ? `있음(HTTP ${manifest.status})` : `없음(HTTP ${manifest.status})`}, 기기 상태 조회 HTTP ${deviceStatus.status}${opsText}` });
+    await run('pwa_manifest_read', 'HTTP 200; 앱 이름·standalone manifest(설치 표시는 기기 확인이 아님)', '/manifest.webmanifest');
+    await run('anonymous_device_status', 'HTTP 401; 로그인·기기 서명 없는 기기 상태 조회 거절', '/api/devices/status');
+    notRun('device_approve_without_reauth', 'HTTP 403; 비밀번호 재확인·기기 서명 없는 승인 거절(POST라 보내지 않음, test/r11)');
+  }
+  // 12단계: 작전실 요약은 로그인한 본인 기록만
+  if (config.step >= 12) {
+    await run('anonymous_ops_summary', 'HTTP 401; 로그인 없는 작전실 요약 조회 거절', '/api/ops/summary');
   }
   return results;
 }
