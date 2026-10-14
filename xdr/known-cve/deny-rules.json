@@ -1,0 +1,86 @@
+{
+  "schema": "aleph.xdr.deny-rules.v1",
+  "moduleKey": "known-cve",
+  "rules": [
+    {
+      "ruleId": "xdr.known_cve.deny",
+      "match": {
+        "srcip": "203.0.113.10"
+      },
+      "sourceAlertId": "kc-01",
+      "reason": "CVE-2021-44228-jndi-lookup-header: 머리글에 완전한 조회 구문, 1번",
+      "createdAt": "2026-09-27T00:14:02.000Z",
+      "expiresAt": "2026-09-27T01:14:02.000Z"
+    },
+    {
+      "ruleId": "xdr.known_cve.deny",
+      "match": {
+        "srcip": "203.0.113.10"
+      },
+      "sourceAlertId": "kc-02",
+      "reason": "CVE-2021-44228-jndi-lookup-param: 인자에 완전한 조회 구문, 1번",
+      "createdAt": "2026-09-27T00:14:18.000Z",
+      "expiresAt": "2026-09-27T01:14:18.000Z"
+    },
+    {
+      "ruleId": "xdr.known_cve.deny",
+      "match": {
+        "srcip": "198.51.100.16"
+      },
+      "sourceAlertId": "kc-03",
+      "reason": "CVE-2021-44228-jndi-lookup-param: 인자에 완전한 조회 구문, 6번",
+      "createdAt": "2026-09-27T00:17:06.000Z",
+      "expiresAt": "2026-09-27T01:17:06.000Z"
+    },
+    {
+      "ruleId": "xdr.known_cve.deny",
+      "match": {
+        "srcip": "192.0.2.16"
+      },
+      "sourceAlertId": "kc-04",
+      "reason": "CVE-2021-44228-jndi-lookup-header: 머리글에 완전한 조회 구문, 4번",
+      "createdAt": "2026-09-27T01:04:22.000Z",
+      "expiresAt": "2026-09-27T02:04:22.000Z"
+    },
+    {
+      "ruleId": "xdr.known_cve.deny",
+      "match": {
+        "srcip": "203.0.113.24"
+      },
+      "sourceAlertId": "kc-05",
+      "reason": "CVE-2021-44228-scanner-probe: 인자에 완전한 조회 구문, 1번",
+      "createdAt": "2026-09-27T01:21:09.000Z",
+      "expiresAt": "2026-09-27T02:21:09.000Z"
+    },
+    {
+      "ruleId": "xdr.known_cve.deny",
+      "match": {
+        "srcip": "198.51.100.24"
+      },
+      "sourceAlertId": "kc-06",
+      "reason": "CVE-2021-44228-jndi-lookup-param: 인자에 완전한 조회 구문, 8번",
+      "createdAt": "2026-09-27T02:08:41.000Z",
+      "expiresAt": "2026-09-27T03:08:41.000Z"
+    },
+    {
+      "ruleId": "xdr.known_cve.deny",
+      "match": {
+        "srcip": "192.0.2.24"
+      },
+      "sourceAlertId": "kc-07",
+      "reason": "CVE-2021-44228-jndi-lookup-header: 머리글에 완전한 조회 구문, 1번",
+      "createdAt": "2026-09-27T04:06:15.000Z",
+      "expiresAt": "2026-09-27T05:06:15.000Z"
+    },
+    {
+      "ruleId": "xdr.known_cve.deny",
+      "match": {
+        "srcip": "203.0.113.31"
+      },
+      "sourceAlertId": "kc-08",
+      "reason": "CVE-2021-44228-jndi-lookup-header: 머리글+인자에 완전한 조회 구문, 1번",
+      "createdAt": "2026-09-27T05:19:03.000Z",
+      "expiresAt": "2026-09-27T06:19:03.000Z"
+    }
+  ]
+}

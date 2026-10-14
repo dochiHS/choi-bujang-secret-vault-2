@@ -1,0 +1,27 @@
+{
+  "schema": "aleph.xdr.patterns.v1",
+  "moduleKey": "known-cve",
+  "source": "NVD CVE-2021-44228 (https://nvd.nist.gov/vuln/detail/CVE-2021-44228) · MITRE ATT&CK T1190 Exploit Public-Facing Application (https://attack.mitre.org/techniques/T1190/)",
+  "patterns": [
+    {
+      "name": "CVE-2021-44228-jndi-lookup-header",
+      "condition": "요청 머리글(User-Agent 등)에 원격 조회 구문 ${jndi:<프로토콜>://주소} 이 완전한 형태로 들어 있음",
+      "basis": "CVE-2021-44228: Log4j 가 기록하는 머리글 값 안의 JNDI 조회 구문으로 외부 코드를 불러와 실행시키는 형태"
+    },
+    {
+      "name": "CVE-2021-44228-jndi-lookup-param",
+      "condition": "요청 주소·인자에 원격 조회 구문 ${jndi:<프로토콜>://주소} 이 완전한 형태로 들어 있음",
+      "basis": "T1190: 공개된 웹 앱의 입력 인자에 알려진 취약점 공격 문자열을 넣어 악용하는 형태"
+    },
+    {
+      "name": "CVE-2021-44228-scanner-probe",
+      "condition": "알려진 취약점 점검 도구의 흔적과 완전한 원격 조회 구문이 함께 있음",
+      "basis": "T1190: 공격자가 공개 취약점 점검 도구로 영향받는 서버를 훑는 형태(CVE-2021-44228 공개 직후 대량 스캔)"
+    },
+    {
+      "name": "CVE-2021-44228-mention-only",
+      "condition": "T1190 태그는 붙었지만 완전한 조회 구문이 없음(취약점 이름·jndi 단어·잘린 조각·점검 도구와 비슷한 이름만)",
+      "basis": "T1190 Detection: 취약점 이름 검색이나 조각만으로는 정상 사용과 구분이 어려워 사람이 확인해야 함"
+    }
+  ]
+}
