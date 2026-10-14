@@ -32,7 +32,56 @@
 | 8단계 | 통과 | 판정기 `zone_access` 기본 거부: 메모 구역 자료 한 건(`/notes/:id`) 읽기·수정은 엔진이 확인한 사용자 본인 메모로 확인될 때만 허용, 목록·추가·삭제·모르는 경로·쿼리 기능·학생의 공지 수정은 `deny`·`zone_access_denied`. API는 소유자·구역 재대조 |
 | 9단계 | 통과 | 탐지기 `src/detect.mjs`: 같은 신원의 `GET`이 어느 10분 구간에서든 120건을 넘으면(네트워크 정보가 있으면 낯선 네트워크와 함께일 때만) `propose_revocation`·`burst_read` 제안, 그 밖에는 `observe` |
 | 10단계 | 통과 | 검증 사본 복구: 메모를 처음 만들 때 사본(`vault_note_backups`)을 남기고, `POST /api/notes/:id/restore`가 본인 메모 한 건만 ID·소유자·내용 해시를 대조해 되돌리거나 다시 만듦. 감사 기록(`vault_audit_log`)은 추가만. 안전 정책 사본(`policy/verified`) 비교·복원 도구 |
-| 11단계 | 제출 | 설치형 웹앱 화면(`manifest.webmanifest`)과 기기 승인 흐름. 세션·기기 키는 탭 메모리에만(브라우저 저장소 사용 안 함), 서버가 비밀번호 재확인+기기 서명으로 승인(`vault_devices`)한 뒤에만 자료실을 열고, 모든 보호 요청은 승인된 기기 키로 방식·경로·본문 해시를 서명 |
+| 11단계 | 통과 | 설치형 웹앱 화면(`manifest.webmanifest`)과 기기 승인 흐름. 세션·기기 키는 탭 메모리에만(브라우저 저장소 사용 안 함), 서버가 비밀번호 재확인+기기 서명으로 승인(`vault_devices`)한 뒤에만 자료실을 열고, 모든 보호 요청은 승인된 기기 키로 방식·경로·본문 해시를 서명 |
+| 12단계 | 제출 | 탈환 작전실: 모든 자료 API 응답에 요청 ID(`X-Request-Id`)와 가린 서버 기록(`vault_request_log`), 작전실 요약 `GET /api/ops/summary`(판정기 규칙·탐지·회수·복구), 41종 점검표(실측·미실행 구분), 재현 안내와 출처 구분 |
+
+## 12단계: 탈환 작전실을 완성합니다
+
+이 절의 안내는 **12단계 저장점 커밋**(`git log -1`로 확인) 기준입니다. 비밀값(Supabase 서버 키, 비밀번호, 토큰)은 저장소·안내·제출 묶음 어디에도 넣지 않았고, 값이 필요한 곳은 공식 설정 화면에 직접 넣도록 적었습니다.
+
+### 출처 구분: 제공 엔진과 학생 작업
+
+| 구분 | 무엇 | 위치 |
+|---|---|---|
+| 제공 엔진 | **ALEPH SDP 엔진**(반 엔진·릴레이·심판). 신원·기기(mTLS)·경로를 먼저 확인하고 학생 판정기를 부르며, 신원 회수와 41종 총공세를 실행합니다. 판정 요청 계약 `aleph.decision.v1`, 탐지 사건 형식, 심판 토큰 발급자(`judgeIssuer`)는 엔진이 정한 것입니다. | 저장소 밖(운영). 계약 설명만 `docs/DECIDER_REQUEST.md`, `docs/DETECT_EVENTS.md` |
+| 제공 시작 틀 | 로그인 검증기 `src/verify-login.mjs`, 제출 묶음 `scripts/bundle.mjs`, 배포 기록 `scripts/deployment-identity.mjs`, XDR 공식 경보 묶음 | 시작 틀 원본 그대로(고치지 않음) |
+| 학생 작업: 판정기 | `src/decider.mjs` (`device_registered`·`step_up_required`·`zone_access`), 검증 사본 `policy/verified/` | 6~8·10단계 |
+| 학생 작업: 탐지 규칙 | `src/detect.mjs` (10분 120건 초과 GET → `propose_revocation`·`burst_read`) | 9단계 |
+| 학생 작업: 접속 앱 | `public/index.html`(로그인·기기 승인·요청 서명), `public/manifest.webmanifest`, `public/ops.js`(탈환 작전실) | 11·12단계 |
+| 학생 작업: 자료실 | 서버 함수 `api/**`(메모·공지·복구·기기·작전실 요약), Supabase 표 `supabase/*.sql` | 2~5·8·10~12단계 |
+
+### 제작 1: 탈환 작전실 요약
+
+- 모든 자료 API(`/api/notes*`, `/api/notices*`, `/api/devices*`, `/api/ops/summary`) 응답에 요청 ID `X-Request-Id`가 붙고, 서버가 `vault_request_log`에 **가린 기록** 한 줄을 남깁니다: 요청 ID·시각·메서드·경로 모양(`/api/notes/:id`)·상태 코드·거부 사유·가린 주체(SHA-256 앞 16자리)·토큰 종류·기기 ID·점검 회차 ID. 토큰·비밀번호·메모 제목/본문·실제 사용자 번호·메모 ID 원문은 남기지 않습니다.
+- `GET /api/ops/summary`(로그인 필요, 학생은 승인 기기 서명 필요)는 로그인한 **본인 기록**과 본인이 시작한 점검 회차의 비로그인 요청만 읽어 돌려줍니다.
+  - 판정기 규칙: `RULE_IDS`, 검증 사본(`policy/verified/manifest.json`)과 규칙·지문이 같은지
+  - 탐지 사건: 본인 GET 기록을 9단계 탐지기 `detect()`에 그대로 넣은 결과
+  - 회수 상태: 본인 기기 승인·대기·회수 수, 이 기기 상태, 회수 제안 여부
+  - 복구 버전: 검증 사본 수·마지막 사본 시각, 복구 감사 기록 수·마지막 복구 시각·이전 상태·지문 앞 12자리
+  - `records`(가린 기록 최대 200건)와 같은 records로 계산한 `counts`
+- 화면(`public/ops.js`)은 records를 직접 다시 세어 서버 counts와 맞는지 "일치/다름"으로 보여 줍니다. 서버 응답이 없으면 수치를 비워 두고, 메모 제목·본문은 받지도 그리지도 않습니다.
+
+### 제작 2: 1~12단계 점검표(판정 카탈로그 41종)
+
+- 작전실의 **「41종 점검표 실행(실제 요청)」** 버튼은 승인된 기기에서 정상·금지 요청을 실제로 보내고, 요청마다 기대 결과·실제 API 결과(상태 코드·거부 사유)·요청 ID·확인 시각·판정을 한 표에 적습니다. 끝나면 작전실 요약을 다시 읽어 각 요청 ID가 가린 서버 기록에 있는지("서버 기록: 일치")까지 대조합니다.
+- 시험용 가상 메모 한 건을 만들어 변조→복구, 삭제→복구, 서명 뒤 경로·본문 변경을 시험하고 마지막에 지웁니다. 다른 메모는 바꾸지 않습니다.
+- 브라우저에서 보낼 수 없는 시험(mTLS 인증서, 판정기 가상 사건 입력, 신원 회수, 다른 사용자 토큰, 원본 API 직접 수정, 저장소 비밀값 검색)은 이유와 함께 **미실행**으로 남기고, 막은 수에 넣지 않습니다. 표 위의 요약은 "요청을 보낸 시험 / 실측 막음 / 정상 동작 확인 / 일부만 실행 / 미실행"을 따로 셉니다. 41종을 모두 막았다고 적지 않습니다.
+- 「점검표 JSON 내려받기」로 같은 표를 파일로 받을 수 있습니다(메모 본문 없음, 브라우저 저장소 사용 없음).
+- 로컬에서 같은 로직을 확인: `npm run test:r12`(가린 기록에 메모 문장·사용자 번호가 없는지, 요약 counts가 records와 같은지, 다른 사용자·다른 회차 기록이 섞이지 않는지).
+- `npm run bundle`의 자기 점검은 심판 격리 환경 조건에 맞춰 공개 HTTPS로 **GET·HEAD만** 보냅니다. 쓰기 요청 점검(`anonymous_api_notes_create`)은 `not_run`으로 남기고 실측은 위 점검표에서 합니다.
+
+### 제작 3: 설치·실행·중지·복구 안내 (12단계 저장점 기준)
+
+준비: Node 22 이상, 본인 GitHub 공개 저장소, Vercel 프로젝트, 학습용 Supabase 프로젝트.
+
+| 대상 | 설치 | 실행·확인 | 중지 | 복구 |
+|---|---|---|---|---|
+| 학생 판정기 `src/decider.mjs` | `npm install` | `npm run decider:test`, `npm run fixture:7` (가상 요청 연습) | 제공 엔진 쪽 정책 연결을 끊는 것은 운영 몫. 학생은 배포를 바꾸지 않음 | `npm run policy:diff`로 차이 확인 → `npm run policy:restore -- --yes`로 검증 사본(`policy/verified`)으로 되돌림 |
+| 탐지 규칙 `src/detect.mjs` | `npm install` | `npm run detect:test` (가상 사건 연습). 작전실 "탐지 사건" 카드는 본인 실제 기록에 같은 탐지기를 돌린 결과 | 회수 실행은 제공 엔진 몫(탐지기는 제안만) | `git log -- src/detect.mjs`로 직전 커밋을 찾아 그 파일만 `git checkout <커밋> -- src/detect.mjs` |
+| 접속 앱 `public/*` | Vercel이 `npm run build`로 배포. 설치형 앱은 브라우저의 "앱 설치"(설치는 기기 확인이 아님) | 배포 주소 → 로그인 → 비밀번호 재확인으로 기기 승인 → 자료실·작전실. `npm run test:r11` | 탭을 닫으면 메모리의 세션·기기 키가 사라짐(로그아웃 버튼도 같음) | 기기 키를 잃으면 다시 로그인·승인. 서버의 기기 명단은 `vault_devices` |
+| 자료실 서버 함수 `api/**`·DB | Supabase SQL Editor에서 `supabase/` SQL을 단계 순서대로 실행(`vault_notes.sql` → `step3` → `step4` → `step5` → `step8` → `step10` → `step11_devices` → `step12_ops`). Vercel 환경변수 `SUPABASE_URL`, `SUPABASE_SECRET_KEY`는 Vercel 설정 화면에 직접 입력 | `npm run test:r5`·`test:r8`·`test:r10`·`test:r11`·`test:r12`, 배포 `/aleph.json`의 커밋이 저장점과 같은지 확인 | Vercel 프로젝트 Settings에서 배포 일시 중지 또는 이전 배포로 Rollback | 메모 한 건: `POST /api/notes/:id/restore`(검증 사본에서 본인 메모만). 코드: Vercel의 직전 정상 배포로 Rollback 후 원인 커밋만 되돌림(`reset --hard` 쓰지 않음) |
+
+재현 순서: ① 저장소 받기 → `npm install` → 로컬 시험 전부 실행 ② Supabase SQL 순서대로 실행 ③ Vercel 환경변수 입력·배포 → `/aleph.json` 커밋 확인 ④ 배포 화면에서 로그인·기기 승인 → 작전실 요약 새로고침 → 41종 점검표 실행 ⑤ `npm run bundle`로 제출 묶음 생성(실행하지 않은 점검은 `not_run`).
 
 ## 11단계: 나만의 접속 앱을 완성합니다
 

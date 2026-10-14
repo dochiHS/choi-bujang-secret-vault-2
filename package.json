@@ -8,6 +8,7 @@
     "test:r8": "node --test test/r8.test.mjs",
     "test:r10": "node --test test/r10.test.mjs",
     "test:r11": "node --test test/r11.test.mjs",
+    "test:r12": "node --test test/r12.test.mjs",
     "bundle": "node scripts/bundle.mjs",
     "decider:test": "node scripts/decider-test.mjs",
     "detect:test": "node scripts/detect-test.mjs",
