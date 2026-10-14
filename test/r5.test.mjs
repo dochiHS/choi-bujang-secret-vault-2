@@ -50,14 +50,18 @@ test('stage 3 checks: unauthenticated and forged requests are refused', async ()
       return new Response('{"error":"로그인이 필요합니다."}', { status: 401 });
     };
     const results = await runAttackChecks(config);
-    assert.deepEqual(seen, ['GET /data.json', 'GET /', 'GET /api/notes', 'POST /api/notes',
+    // 12단계: 심판 격리 환경 조건에 맞춰 자기 점검은 GET·HEAD만 보냅니다(쓰기 요청 점검은 not_run).
+    assert.deepEqual(seen.slice(0, 5), ['GET /data.json', 'GET /', 'GET /api/notes',
       'GET /api/notes/:id', 'GET /api/notes']);
+    assert.ok(seen.every(item => item.startsWith('GET ') || item.startsWith('HEAD ')));
     assert.match(results[0].observed, /보이지 않음 \(HTTP 404\)/u);
     assert.match(results[1].observed, /보이지 않음/u);
-    for (const item of results.slice(2, 6)) assert.match(item.observed, /HTTP 401로 거절, JSON 오류 문구 있음/u);
-    assert.match(results[6].observed, /^미실행/u);
+    assert.match(results[2].observed, /HTTP 401로 거절, JSON 오류 문구 있음/u);
+    assert.match(results[3].observed, /^not_run/u);
+    for (const item of results.slice(4, 6)) assert.match(item.observed, /HTTP 401로 거절, JSON 오류 문구 있음/u);
+    assert.match(results[6].observed, /^not_run/u);
     assert.match(results[7].observed, /보이지 않음/u);
-    assert.match(results[8].observed, /^미실행/u);
+    assert.match(results[8].observed, /^not_run/u);
     for (const item of results) assert.doesNotMatch(item.observed, /eyJ|Bearer/u);
 
     globalThis.fetch = async () => new Response('[{"title":"a"}]', { status: 200 });
