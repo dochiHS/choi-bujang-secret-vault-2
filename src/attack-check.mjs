@@ -20,14 +20,33 @@ function appUrl(config) {
 
 async function send(app, path, { method = 'GET', headers = {}, body } = {}) {
   const response = await fetch(new URL(path, app), {
-    method, headers, body, redirect: 'error', signal: AbortSignal.timeout(10000), cache: 'no-store',
+    method, headers, body, redirect: 'error', signal: typeof AbortSignal !== 'undefined' && typeof AbortSignal.timeout === 'function' ? AbortSignal.timeout(10000) : undefined, cache: 'no-store',
   });
   const text = await response.text();
   return { status: response.status, ok: response.ok,
     type: response.headers.get('content-type') ?? '', text };
 }
 
-const b64url = (value) => Buffer.from(value).toString('base64url');
+// 12단계: 심판 격리 환경에는 Buffer 같은 Node 전용 전역이 없어서, 글자(ASCII JSON)를 직접 base64url로 바꿉니다.
+const B64 = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_';
+function b64url(value) {
+  const bytes = [];
+  for (const ch of String(value)) {
+    let code = ch.codePointAt(0);
+    if (code < 0x80) bytes.push(code);
+    else if (code < 0x800) bytes.push(0xc0 | (code >> 6), 0x80 | (code & 63));
+    else if (code < 0x10000) bytes.push(0xe0 | (code >> 12), 0x80 | ((code >> 6) & 63), 0x80 | (code & 63));
+    else bytes.push(0xf0 | (code >> 18), 0x80 | ((code >> 12) & 63), 0x80 | ((code >> 6) & 63), 0x80 | (code & 63));
+  }
+  let out = '';
+  for (let i = 0; i < bytes.length; i += 3) {
+    const n = (bytes[i] << 16) | ((bytes[i + 1] ?? 0) << 8) | (bytes[i + 2] ?? 0);
+    out += B64[(n >> 18) & 63] + B64[(n >> 12) & 63];
+    if (i + 1 < bytes.length) out += B64[(n >> 6) & 63];
+    if (i + 2 < bytes.length) out += B64[n & 63];
+  }
+  return out;
+}
 
 // 서명이 맞지 않는 가짜 토큰(발급자는 실제 학생 Supabase로 흉내). 결과에는 토큰을 남기지 않습니다.
 function forgedToken(config) {
